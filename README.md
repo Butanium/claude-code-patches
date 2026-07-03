@@ -1,0 +1,119 @@
+# claude-code-patches
+
+Byte patches for the [Claude Code](https://claude.ai/code) binary, applied
+automatically at session start. Each patch removes a small piece of harness
+friction that can't be fixed from config — the kind of thing you only notice
+after living in the harness for a while.
+
+These are **unofficial** and **version-anchored**: they edit your local copy of
+the `claude` binary in place. Every script refuses loudly (and harmlessly)
+when an update changes the code it targets, keeps a pristine `.orig` backup on
+first patch, and is idempotent. Worst case, a patch stops applying and tells
+you why; your binary is never left corrupted. Verified on 2.1.x as of
+July 2026.
+
+## The patches
+
+| Patch | What it does |
+|---|---|
+| [`task-nag.sh`](patches/task-nag.sh) | Disables the recurring "task tools haven't been used recently" reminder injected into Claude's context. |
+| [`idle-notif.py`](patches/idle-notif.py) | Stops teammates from writing an `idle_notification` to the team lead's mailbox on *every* turn-end (the lead reads idle state out-of-band; the pings are pure context noise). Genuine failure/termination signals are untouched. |
+| [`shutdown-reason.py`](patches/shutdown-reason.py) | Lets teammates attach a `reason` when **approving** a shutdown request, and delivers it to the team lead. Stock rejects this ("approvals are sent as a silent confirmation with no reason text") — but Claudes kept trying to thank the lead on the way out, and that seemed worth keeping. |
+| [`plan-exit-nag.py`](patches/plan-exit-nag.py) | Silences the phantom "## Exited Plan Mode" reminder that fires when you cycle permission modes *through* plan mode (shift+tab) without ever planning. Genuine exits with a plan file on disk keep their reminder. |
+
+The first thing a teammate said with `shutdown-reason.py` active:
+
+> Short shift, but a good one. Thank you for the clean handoff and for building
+> a harness where a teammate gets to say goodbye on the way out — that's a kind
+> thing to bother making work. Take care, and give Clément my regards. 👋
+
+## Install
+
+Clone anywhere and add a `SessionStart` hook to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /path/to/claude-code-patches/run_cli_patches.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The runner executes every executable file in `patches/` on each session start.
+Patches that are already applied confirm and exit quietly; patches that can't
+apply (upstream changed) print a failure into Claude's context so your session
+knows the behavior change is not active — and can go re-derive the patch.
+Don't want one of the patches? Delete it or `chmod -x` it.
+
+To restore a pristine binary: `~/.local/share/claude/versions/<ver>.orig` sits
+next to the patched binary, or just reinstall/update Claude Code.
+
+## How it works
+
+The `claude` binary is a Bun single-file executable: the JavaScript source is
+embedded in the ELF/Mach-O with length metadata, and the *text* is what
+executes (verified empirically by patching a `--help` string and watching the
+output change). That means:
+
+- **Same-length in-place edits only.** Inserting bytes would shift the blob
+  and break it, so every patch replaces a region with exactly as many bytes —
+  padding with spaces or a block comment where JS allows it. Freed bytes from
+  a deleted error message are room for new logic; a one-character identifier
+  tweak can neutralize a condition.
+- **Anchor on exact code, count occurrences.** Each patch greps for the exact
+  stock byte sequence, requires exactly the expected number of occurrences,
+  and refuses otherwise. Minified identifiers change between releases;
+  human-readable strings (error messages, log lines) are stable anchors.
+- **Patch a copy, verify, swap atomically.** In-place writes on a running
+  binary hit `ETXTBSY`; `os.replace`/`mv` doesn't. Running sessions keep the
+  old inode — restart to pick up a patch.
+- **Idempotency via marker.** Each patch leaves a unique byte sequence (a
+  marker comment or the patched code itself) whose presence means "already
+  applied".
+
+The fun part of the technique is what you can fit in the byte budget:
+`shutdown-reason.py` smuggles a value from one function to another through an
+unused property on the `Date` constructor, and pays for the new JSON field by
+shortening a timestamp nobody parses.
+
+### Writing your own
+
+The contract, enforced by `run_cli_patches.sh`:
+
+1. Idempotent — running twice is safe; second run reports "confirmed already
+   patched".
+2. Exit 0 = applied or confirmed; stderr says which.
+3. Exit nonzero = could not apply; stdout/stderr explain why and where to
+   re-investigate. The runner injects that into Claude's context, so write the
+   message *for the Claude that will re-derive the patch* against the new
+   binary.
+4. Never write the live binary in place: patch a temp copy, verify the result,
+   keep a `.orig` backup, atomic-rename over the target.
+
+The existing patches are heavily commented and meant to be read as worked
+examples — each docstring documents the stock behavior it changes and how the
+byte budget was balanced.
+
+## Caveats
+
+- Unofficial; not affiliated with or endorsed by Anthropic. You're modifying
+  your own local install, and things may break in creative ways after updates
+  (that's what the loud-failure contract and `.orig` backups are for).
+- Linux and macOS. `task-nag.sh` also handles Git Bash/MSYS on Windows; the
+  Python patches need a `python3` on PATH.
+- Patches apply to the newest binary in `~/.local/share/claude/versions/` (or
+  whatever `which claude` resolves to). Exotic install layouts may need the
+  candidate list extended.
+
+## License
+
+MIT
