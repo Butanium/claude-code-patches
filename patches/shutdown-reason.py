@@ -74,18 +74,21 @@ CORE_A = (
     b"Date.q=e.message.reason;"
 )
 
-# --- Edit B: RCo frame builder -> carry the reason --------------------------
+# --- Edit B: shutdown_approved frame builder -> carry the reason ------------
+# Anchored on the returned object literal ONLY, not the enclosing function name
+# (`RCo` in 2.1.197, `LIo` in 2.1.201 — minified names are renamed every build,
+# so anchoring on them breaks on every update; the object literal is stable).
 PATTERN_B = (
-    b'function RCo(e){return{type:"shutdown_approved",requestId:e.requestId,'
+    b'{type:"shutdown_approved",requestId:e.requestId,'
     b"from:e.from,timestamp:new Date().toISOString(),paneId:e.paneId,"
-    b"backendType:e.backendType}}"
+    b"backendType:e.backendType}"
 )
 CORE_B = (
-    b'function RCo(e){return{type:"shutdown_approved",requestId:e.requestId,'
+    b'{type:"shutdown_approved",requestId:e.requestId,'
     b"from:e.from,reason:Date.q,timestamp:Date(),paneId:e.paneId,"
     b"backendType:e.backendType"
 )
-TAIL_B = b"}}"
+TAIL_B = b"}"
 
 
 def build_replacement_a() -> bytes:
@@ -107,10 +110,17 @@ def build_replacement_b() -> bytes:
 
 
 def candidate_binaries() -> list[Path]:
-    cands: list[Path] = []
+    """The single ACTIVE binary (`which claude` resolved), else newest in versions/.
+
+    Returning ONLY the active binary avoids the stale-old-version masking bug:
+    an old patched binary lingering in versions/ (e.g. 2.1.197 after an update to
+    2.1.201) must not let a patch report 'already patched' and skip the live one.
+    """
     which = shutil.which("claude")
     if which:
-        cands.append(Path(which).resolve())
+        real = Path(which).resolve()
+        if real.is_file():
+            return [real]
     vdir = Path.home() / ".local/share/claude/versions"
     if vdir.is_dir():
         files = [
@@ -119,13 +129,9 @@ def candidate_binaries() -> list[Path]:
             if p.is_file() and p.suffix not in (".orig",) and ".patch." not in p.name
         ]
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        cands.extend(files)
-    seen, out = set(), []
-    for c in cands:
-        if c not in seen and c.is_file():
-            seen.add(c)
-            out.append(c)
-    return out
+        if files:
+            return [files[0]]
+    return []
 
 
 def main() -> int:
@@ -155,8 +161,8 @@ def main() -> int:
             f"neither pattern nor marker found in any candidate binary "
             f"({[str(p) for p in candidate_binaries()]}) — upstream code changed "
             f"or unknown install layout; re-investigate around the string "
-            f"'reason is only delivered on rejections' and 'function RCo' "
-            f"(shutdown_approved frame builder) in the binary",
+            f"'reason is only delivered on rejections' and the "
+            f"'{{type:\"shutdown_approved\",requestId:...}}' frame object in the binary",
             file=sys.stderr,
         )
         return 1

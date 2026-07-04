@@ -55,10 +55,17 @@ REQUIRE = [b'idleReason:"available"', b'Sent idle notification to leader']
 
 
 def candidate_binaries() -> list[Path]:
-    cands: list[Path] = []
+    """The single ACTIVE binary (`which claude` resolved), else newest in versions/.
+
+    Returning ONLY the active binary avoids the stale-old-version masking bug:
+    an old patched binary lingering in versions/ (e.g. 2.1.197 after an update to
+    2.1.201) must not let a patch report 'already patched' and skip the live one.
+    """
     which = shutil.which("claude")
     if which:
-        cands.append(Path(which).resolve())
+        real = Path(which).resolve()
+        if real.is_file():
+            return [real]
     vdir = Path.home() / ".local/share/claude/versions"
     if vdir.is_dir():
         files = [
@@ -67,14 +74,9 @@ def candidate_binaries() -> list[Path]:
             and ".patch." not in p.name
         ]
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        cands.extend(files)
-    # de-dup, keep order
-    seen, out = set(), []
-    for c in cands:
-        if c not in seen and c.is_file():
-            seen.add(c)
-            out.append(c)
-    return out
+        if files:
+            return [files[0]]
+    return []
 
 
 def locate_body(data: bytes) -> tuple[int, int]:

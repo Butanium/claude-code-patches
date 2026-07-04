@@ -47,39 +47,45 @@ import sys
 import tempfile
 from pathlib import Path
 
-BODY = (
-    b"## Exited Plan Mode\n\nYou have exited plan mode. "
-    b"You can now make edits, run tools, and take actions."
-)
+# Anchor ONLY on the arrow head + the `planExists` ternary — all stable
+# identifiers (`plan_mode_exit`, `e.planExists`, `e.planFilePath`) and the stable
+# English plan-file string — and STOP before `return X([Y({content:...`. The
+# wrapper/element-constructor names there (`Ep([Dn(` in 2.1.197, `Hp([Ln(` in
+# 2.1.201) are minified and renamed every build, so we neither match nor re-emit
+# them: the patch just injects an early `return[]` guard and leaves the original
+# return statement untouched. Rename-proof across updates.
 PATTERN = (
     b"plan_mode_exit:(e)=>{let t=e.planExists?"
     b"` The plan file is located at ${e.planFilePath} if you need to reference it.`"
-    b':"";return Ep([Dn({content:`' + BODY + b"${t}`,isMeta:!0})])},"
+    b':"";'
 )
 GUARD = b"plan_mode_exit:(e)=>{if(!e.planExists)return[];"
-CORE = (
-    GUARD
-    + b"let t=` The plan file is located at ${e.planFilePath}.`;"
-    + b"return Ep([Dn({content:`" + BODY + b"${t}`,isMeta:!0})])},"
-)
+CORE = GUARD + b"let t=` The plan file is located at ${e.planFilePath}.`;"
 
 
 def build_replacement() -> bytes:
     pad = len(PATTERN) - len(CORE)
     if pad < 0:
         raise RuntimeError("replacement longer than pattern — recompute")
-    # Pad with spaces between the guard's `;` and `let` (outside any string).
-    i = len(GUARD)
-    rep = CORE[:i] + b" " * pad + CORE[i:]
+    # Pad with spaces at the end (between the injected `let t=…;` and the original
+    # untouched `return …` statement) — JS-legal inter-statement whitespace.
+    rep = CORE + b" " * pad
     assert len(rep) == len(PATTERN)
     return rep
 
 
 def candidate_binaries() -> list[Path]:
-    cands: list[Path] = []
+    """The single ACTIVE binary (`which claude` resolved), else newest in versions/.
+
+    Returning ONLY the active binary avoids the stale-old-version masking bug:
+    an old patched binary lingering in versions/ (e.g. 2.1.197 after an update to
+    2.1.201) must not let a patch report 'already patched' and skip the live one.
+    """
     which = shutil.which("claude")
     if which:
-        cands.append(Path(which).resolve())
+        real = Path(which).resolve()
+        if real.is_file():
+            return [real]
     vdir = Path.home() / ".local/share/claude/versions"
     if vdir.is_dir():
         files = [
@@ -88,13 +94,9 @@ def candidate_binaries() -> list[Path]:
             if p.is_file() and p.suffix not in (".orig",) and ".patch." not in p.name
         ]
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        cands.extend(files)
-    seen, out = set(), []
-    for c in cands:
-        if c not in seen and c.is_file():
-            seen.add(c)
-            out.append(c)
-    return out
+        if files:
+            return [files[0]]
+    return []
 
 
 def main() -> int:

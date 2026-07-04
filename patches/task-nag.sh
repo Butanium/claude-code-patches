@@ -15,18 +15,21 @@ set -euo pipefail
 PATTERN='TURNS_SINCE_WRITE:10,TURNS_BETWEEN_REMINDERS:10'
 PATCHED='TURNS_SINCE_WRITE:1e9,TURNS_BETWEEN_REMINDERS:9'
 
-# Locate the real versioned binary. `which claude` resolves through the symlink
-# on Linux; on Windows (Git Bash) it may hit a launcher shim instead, so fall
-# back to the newest file in the versions dir (excluding our .orig backups and
-# .patch.* temp files).
+# Target ONLY the active binary — `command -v claude` resolved through the
+# symlink on Linux. Using a single active candidate (not a list including old
+# versions) avoids the stale-old-version masking bug: an old patched binary
+# lingering in versions/ (e.g. 2.1.197 after an update to 2.1.201) must not make
+# the loop below confirm 'already patched' and skip the live one. Fall back to
+# the newest file in versions/ only when `command -v claude` fails (e.g. Windows
+# Git-Bash hitting a launcher shim); excludes .orig backups and .patch.* temps.
 CANDIDATES=""
 W="$(command -v claude || true)"
 [ -n "$W" ] && CANDIDATES="$(readlink -f "$W")"
-VDIR="$HOME/.local/share/claude/versions"
-if [ -d "$VDIR" ]; then
-    NEWEST="$(find "$VDIR" -maxdepth 1 -type f ! -name '*.orig' ! -name '*.patch.*' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')"
-    [ -n "$NEWEST" ] && CANDIDATES="$CANDIDATES
-$NEWEST"
+if [ -z "$CANDIDATES" ] || [ ! -f "$CANDIDATES" ]; then
+    VDIR="$HOME/.local/share/claude/versions"
+    if [ -d "$VDIR" ]; then
+        CANDIDATES="$(find "$VDIR" -maxdepth 1 -type f ! -name '*.orig' ! -name '*.patch.*' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')"
+    fi
 fi
 
 BIN=""
