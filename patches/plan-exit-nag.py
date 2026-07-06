@@ -41,11 +41,11 @@ Exit 1 if the patch can't be applied (runner relays the message to Claude).
 """
 from __future__ import annotations
 
-import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _binpatch import apply_patch, candidate_binaries
 
 # Anchor ONLY on the arrow head + the `planExists` ternary — all stable
 # identifiers (`plan_mode_exit`, `e.planExists`, `e.planFilePath`) and the stable
@@ -72,31 +72,6 @@ def build_replacement() -> bytes:
     rep = CORE + b" " * pad
     assert len(rep) == len(PATTERN)
     return rep
-
-
-def candidate_binaries() -> list[Path]:
-    """The single ACTIVE binary (`which claude` resolved), else newest in versions/.
-
-    Returning ONLY the active binary avoids the stale-old-version masking bug:
-    an old patched binary lingering in versions/ (e.g. 2.1.197 after an update to
-    2.1.201) must not let a patch report 'already patched' and skip the live one.
-    """
-    which = shutil.which("claude")
-    if which:
-        real = Path(which).resolve()
-        if real.is_file():
-            return [real]
-    vdir = Path.home() / ".local/share/claude/versions"
-    if vdir.is_dir():
-        files = [
-            p
-            for p in vdir.iterdir()
-            if p.is_file() and p.suffix not in (".orig",) and ".patch." not in p.name
-        ]
-        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        if files:
-            return [files[0]]
-    return []
 
 
 def main() -> int:
@@ -135,26 +110,13 @@ def main() -> int:
     patched = data.replace(PATTERN, rep)
     assert len(patched) == len(data)
 
-    # Write to a temp copy then atomically swap in (in-place write on a live
-    # binary hits ETXTBSY if a claude process is running from it).
-    fd, tmp = tempfile.mkstemp(prefix=binp.name + ".patch.", dir=str(binp.parent))
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(patched)
-        written = Path(tmp).read_bytes()
+    # Write to a temp copy, verify, then atomically swap in (rename-aside on
+    # Windows where the running .exe is locked; see _binpatch.apply_patch).
+    def _verify(written: bytes) -> None:
         if len(written) != len(data) or GUARD not in written or PATTERN in written:
-            raise RuntimeError(
-                f"post-write verification failed on {tmp} — live binary untouched"
-            )
-        shutil.copymode(binp, tmp)
-        orig = binp.with_name(binp.name + ".orig")
-        if not orig.exists():
-            shutil.copy2(binp, orig)
-        os.replace(tmp, binp)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+            raise RuntimeError("post-write verification failed — live binary untouched")
+
+    apply_patch(binp, data, patched, _verify)
 
     print(
         f"plan-exit-nag: applied patch to {binp} "

@@ -16,7 +16,7 @@ July 2026.
 
 | Patch | What it does |
 |---|---|
-| [`task-nag.sh`](patches/task-nag.sh) | Disables the recurring "task tools haven't been used recently" reminder injected into Claude's context. |
+| [`task-nag.py`](patches/task-nag.py) | Disables the recurring "task tools haven't been used recently" reminder injected into Claude's context. |
 | [`idle-notif.py`](patches/idle-notif.py) | Stops teammates from writing an `idle_notification` to the team lead's mailbox on *every* turn-end (the lead reads idle state out-of-band; the pings are pure context noise). Genuine failure/termination signals are untouched. |
 | [`shutdown-reason.py`](patches/shutdown-reason.py) | Lets teammates attach a `reason` when **approving** a shutdown request, and delivers it to the team lead. Stock rejects this ("approvals are sent as a silent confirmation with no reason text") — but Claudes kept trying to thank the lead on the way out, and that seemed worth keeping. |
 | [`plan-exit-nag.py`](patches/plan-exit-nag.py) | Silences the phantom "## Exited Plan Mode" reminder that fires when you cycle permission modes *through* plan mode (shift+tab) without ever planning. Genuine exits with a plan file on disk keep their reminder. |
@@ -74,8 +74,11 @@ output change). That means:
   and refuses otherwise. Minified identifiers change between releases;
   human-readable strings (error messages, log lines) are stable anchors.
 - **Patch a copy, verify, swap atomically.** In-place writes on a running
-  binary hit `ETXTBSY`; `os.replace`/`mv` doesn't. Running sessions keep the
-  old inode — restart to pick up a patch.
+  binary hit `ETXTBSY` on Unix; `os.replace` swaps the inode instead, so running
+  sessions keep the old one — restart to pick up a patch. On Windows a running
+  `.exe` is *locked* against replacement, so the swap renames the live binary
+  aside first (allowed while running) and moves the patched copy into the vacated
+  slot. Both paths live in the shared `_binpatch.py` helper.
 - **Idempotency via marker.** Each patch leaves a unique byte sequence (a
   marker comment or the patched code itself) whose presence means "already
   applied".
@@ -97,7 +100,10 @@ The contract, enforced by `run_cli_patches.sh`:
    message *for the Claude that will re-derive the patch* against the new
    binary.
 4. Never write the live binary in place: patch a temp copy, verify the result,
-   keep a `.orig` backup, atomic-rename over the target.
+   keep a `.orig` backup, atomic-rename over the target. The Python patches get
+   this — plus binary location and the Windows running-exe swap — for free from
+   the shared `_binpatch.py` helper (`candidate_binaries()` + `apply_patch()`);
+   a new patch just supplies its anchors and a `verify` callback.
 
 The existing patches are heavily commented and meant to be read as worked
 examples — each docstring documents the stock behavior it changes and how the
@@ -108,11 +114,14 @@ byte budget was balanced.
 - Unofficial; not affiliated with or endorsed by Anthropic. You're modifying
   your own local install, and things may break in creative ways after updates
   (that's what the loud-failure contract and `.orig` backups are for).
-- Linux and macOS. `task-nag.sh` also handles Git Bash/MSYS on Windows; the
-  Python patches need a `python3` on PATH.
-- Patches apply to the newest binary in `~/.local/share/claude/versions/` (or
-  whatever `which claude` resolves to). Exotic install layouts may need the
-  candidate list extended.
+- Linux, macOS, and Windows (Git Bash/MSYS). All patches are Python and need a
+  `python3` on PATH.
+- Binary location (`_binpatch.candidate_binaries()`): `which claude`, following a
+  Windows `.cmd`/`.bat`/`.ps1` launcher shim to the real `.exe` it wraps;
+  otherwise the live copy at `~/.local/bin/claude[.exe]` (resolved through the
+  symlink on Unix); otherwise the newest binary in
+  `~/.local/share/claude/versions/`. Exotic install layouts may need this
+  extended.
 
 ## License
 

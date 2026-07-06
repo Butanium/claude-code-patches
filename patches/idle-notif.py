@@ -35,11 +35,11 @@ Exit 1 if the patch can't be applied (runner relays the message to Claude).
 """
 from __future__ import annotations
 
-import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _binpatch import apply_patch, candidate_binaries
 
 # Stable, human-readable anchors (no minified identifiers — survive rebuilds).
 SUFFIX = b'},"Failed to send idle notification to team leader"'
@@ -52,31 +52,6 @@ COMMENT_CLOSE = b'*/'
 MARKER = b'[4l32P patched idle notifs]'
 # Sanity tokens that must appear in the un-patched callback body.
 REQUIRE = [b'idleReason:"available"', b'Sent idle notification to leader']
-
-
-def candidate_binaries() -> list[Path]:
-    """The single ACTIVE binary (`which claude` resolved), else newest in versions/.
-
-    Returning ONLY the active binary avoids the stale-old-version masking bug:
-    an old patched binary lingering in versions/ (e.g. 2.1.197 after an update to
-    2.1.201) must not let a patch report 'already patched' and skip the live one.
-    """
-    which = shutil.which("claude")
-    if which:
-        real = Path(which).resolve()
-        if real.is_file():
-            return [real]
-    vdir = Path.home() / ".local/share/claude/versions"
-    if vdir.is_dir():
-        files = [
-            p for p in vdir.iterdir()
-            if p.is_file() and p.suffix not in (".orig",)
-            and ".patch." not in p.name
-        ]
-        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        if files:
-            return [files[0]]
-    return []
 
 
 def locate_body(data: bytes) -> tuple[int, int]:
@@ -174,30 +149,17 @@ def main() -> int:
     patched = data[:bs] + new_body + data[be:]
     assert len(patched) == len(data)
 
-    # Write to a temp copy then atomically swap in (in-place write on a live
-    # binary hits ETXTBSY if a claude process is running from it).
-    fd, tmp = tempfile.mkstemp(prefix=binp.name + ".patch.", dir=str(binp.parent))
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(patched)
-        # Read the temp back from disk and confirm the patch actually landed
-        # (guards against a truncated / partial write before we swap it in).
-        written = Path(tmp).read_bytes()
+    # Write to a temp copy, verify, then atomically swap in (rename-aside on
+    # Windows where the running .exe is locked; see _binpatch.apply_patch).
+    def _verify(written: bytes) -> None:
         if len(written) != len(data) or MARKER not in written or written.count(SUFFIX) != 1:
             raise RuntimeError(
-                f"post-write verification failed on {tmp} "
+                f"post-write verification failed "
                 f"(len={len(written)} want={len(data)}, marker={MARKER in written}, "
                 f"suffix_count={written.count(SUFFIX)}) — live binary untouched"
             )
-        shutil.copymode(binp, tmp)
-        orig = binp.with_name(binp.name + ".orig")
-        if not orig.exists():
-            shutil.copy2(binp, orig)
-        os.replace(tmp, binp)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+
+    apply_patch(binp, data, patched, _verify)
 
     print(
         f"idle-notif: applied patch to {binp} "

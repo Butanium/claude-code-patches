@@ -1,0 +1,7 @@
+# The patch scripts and the runner execute via their shebang line. A CRLF ending
+# turns `#!/usr/bin/python3` into `#!/usr/bin/python3\r`, which the loader cannot
+# find (exit 127). Force LF on checkout regardless of the machine's core.autocrlf
+# (Git for Windows defaults it to true, which would otherwise rewrite these to
+# CRLF on clone and silently break every patch).
+*.py  text eol=lf
+*.sh  text eol=lf
