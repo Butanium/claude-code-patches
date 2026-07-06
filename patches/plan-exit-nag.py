@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """CLI patch: silence phantom "## Exited Plan Mode" reminders.
 
 Cycling permission modes (shift+tab: default -> plan -> bypass -> ...) passes

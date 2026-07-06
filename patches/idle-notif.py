@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """CLI patch: stop teammates from spamming the lead with per-turn idle pings.
 
 Every teammate gets a "Stop" hook registered at init that fires on EVERY

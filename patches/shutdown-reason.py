@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """CLI patch: let teammates attach a `reason` when APPROVING a shutdown request,
 and deliver it to the team lead.
 
