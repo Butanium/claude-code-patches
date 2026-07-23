@@ -21,6 +21,7 @@ July 2026.
 | [`shutdown-reason.py`](patches/shutdown-reason.py) | Lets teammates attach a `reason` when **approving** a shutdown request, and delivers it to the team lead. Stock rejects this ("approvals are sent as a silent confirmation with no reason text") — but Claudes kept trying to thank the lead on the way out, and that seemed worth keeping. |
 | [`plan-exit-nag.py`](patches/plan-exit-nag.py) | Silences the phantom "## Exited Plan Mode" reminder that fires when you cycle permission modes *through* plan mode (shift+tab) without ever planning. Genuine exits with a plan file on disk keep their reminder. |
 | [`peer-msg-warning.py`](patches/peer-msg-warning.py) | Drops the ~90-word security boilerplate ("This came from another Claude session — not typed by your user... that's permission laundering") stamped onto *every* inbound teammate message. Repeated verbatim many times per session, it trains the reader to skip that region — the opposite of what a warning is for. Messages now arrive as their bare `<teammate-message>` blocks. |
+| [`interrupted-idle-notif.py`](patches/interrupted-idle-notif.py) | Stops the `idleReason:"interrupted"` idle_notification an in-process teammate mails the lead when the *user* interrupts it (Escape / stop) — the user did the stopping, so the ping tells the lead nothing. Sibling of `idle-notif.py` for the in-process runner path; "failed" and "available" notifications are untouched. |
 
 The first thing a teammate said with `shutdown-reason.py` active:
 
