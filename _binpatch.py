@@ -62,6 +62,10 @@ def candidate_binaries() -> list[Path]:
     """Return `[the single live claude bundle]`, or `[]` if not locatable.
 
     Resolution order:
+      0. `$CLAUDE_CLI_PATCH_TARGET`, if set — an explicit binary to patch instead
+         of the installed one. This is how `make-expclaude.sh` builds an
+         experimental CLI: copy the live bundle aside, point the env var at the
+         copy, run the patch. Nothing else can aim a patch off the live binary.
       1. `which claude`, following a `.cmd`/`.bat`/`.ps1` launcher shim to the
          real `.exe` it invokes (Windows). A resolved shim we can't dereference is
          rejected so we fall through rather than patch a 90-byte wrapper.
@@ -72,6 +76,16 @@ def candidate_binaries() -> list[Path]:
       3. newest file in `~/.local/share/claude/versions` (last resort; an inert
          copy on the native Windows layout, but correct where bin/ is a symlink).
     """
+    override = os.environ.get("CLAUDE_CLI_PATCH_TARGET")
+    if override:
+        p = Path(override)
+        if not p.is_file():
+            raise RuntimeError(
+                f"CLAUDE_CLI_PATCH_TARGET={override!r} is not a file — refusing to "
+                f"fall back to the installed binary (that would patch the real CLI)"
+            )
+        return [p]
+
     which = shutil.which("claude")
     if which:
         p = Path(which)

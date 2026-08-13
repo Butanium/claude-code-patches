@@ -111,6 +111,30 @@ The existing patches are heavily commented and meant to be read as worked
 examples — each docstring documents the stock behavior it changes and how the
 byte budget was balanced.
 
+### Trying a patch out first: `expclaude`
+
+`experimental/` holds patches that are written but not trusted yet. The runner
+ignores that directory. Instead:
+
+```sh
+./make-expclaude.sh
+expclaude          # same CLI, plus experimental/*, in its own binary
+```
+
+It copies the *live* binary (so everything `patches/` applied is already in
+there), applies `experimental/*.py` on top, and drops a wrapper at
+`~/.local/bin/expclaude` with autoupdate disabled so the copy can't be swapped
+out from under you. Config, sessions and projects are shared with the real CLI,
+so you can `expclaude -r <session>` into real work to exercise the change.
+
+Rebuild after every claude update — the copy does not follow the live binary.
+When a patch has earned its keep, `git mv` it into `patches/`.
+
+The aiming is done by `$CLAUDE_CLI_PATCH_TARGET`, which
+`candidate_binaries()` honours ahead of every other resolution step and which
+refuses to fall back to the installed binary if the path is bogus. Any patch in
+this repo can be pointed at any binary that way.
+
 ## Caveats
 
 - Unofficial; not affiliated with or endorsed by Anthropic. You're modifying
