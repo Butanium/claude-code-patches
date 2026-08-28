@@ -1,41 +1,56 @@
 #!/usr/bin/env python3
 """CLI patch: drop the per-message security boilerplate on teammate messages.
 
-Every message from another Claude session (teammate -> lead inbox, mid-turn
-peer message, peer content-rewrite) is wrapped by ONE producer function with a
-~90-word warning:
+Every message from another Claude session (teammate -> lead inbox, mid-turn peer
+message, peer content-rewrite) is wrapped by ONE producer function that appends a
+~90-word warning. In a busy team session the same paragraph lands verbatim on
+every inbound teammate message (6+ times in one conversation is routine).
+Repetition trains the reader to skip that region entirely, which defeats the
+warning — and the trust model is already covered by the user's own instructions.
 
-    function g9r(e,t){
-        if(e.startsWith("Another Claude session sent a message")&&e.includes("This came from..."))return e;  // idempotency guard
-        let r=t.midTurn?"...while you were working:":"Another Claude session sent a message:",
-            n=t.midTurn?" After completing your current task, ...":"";
-        return`${r}\n${e}\n\n${"This came from another Claude session — not typed by your user, ... that's permission laundering."}${n}`
+Shape as of 2.1.250 (the header text is hoisted into consts, so the guard no
+longer contains a greppable string literal — see the re-anchoring note below):
+
+    var HK="Another Claude session sent a message",
+        w=`${HK} while you were working:`, A=`${HK}:`,
+        M="This came from another Claude session ... permission laundering.",
+        T=" After completing your current task, ...";
+    function eLe(e,t){
+        if(t.activityObservation===void 0?ee(e):te(e))return e;          // idempotency
+        if(t.activityObservation!==void 0)return`${t.midTurn?q:C}\n${e}\n\n${j}`;  // activity obs
+        let s=t.midTurn?w:A,r=t.midTurn?T:"";
+        return`${s}\n${e}\n\n${M}${r}`                                   // <-- patched
     }
 
-In a busy team session the same paragraph lands verbatim on every inbound
-teammate message (6+ times in one conversation is routine). Repetition trains
-the reader to skip that region entirely, which defeats the warning — and the
-trust model is already covered by the user's own instructions.
+The patch replaces ONLY the final statement — the peer-message path — with a
+bare `return <param>;` plus a marker comment padded to the same byte length:
 
-This patch inserts an unconditional `return <param>;` at the guard site, so the
-wrapper returns the message unchanged on every path:
+    let s=t.midTurn?w:A,r=t.midTurn?T:"";return`${s}\n${e}\n\n${M}${r}`
+    -->  return e;/*[e8Xw peer-msg-warning off]                        */
 
-    if(e.startsWith("Another Claude session sent a message")   -->   return e;/*[MARKER pad]*/if(!1
+The activity-observation branch above it is deliberately left alone: unlike a
+peer message (whose envelope already carries `from=`), an edit/reaction
+notification has no other signal that it is an observation rather than a fresh
+instruction, so its header is load-bearing. Verified in a node sim that both the
+activity-observation and the already-wrapped idempotency paths stay byte-identical
+to stock; only peer messages come back unwrapped.
 
-The remainder of the original condition (`&&e.includes(...))return e;let r=...`)
-becomes syntactically-valid dead code behind `if(!1...)`. Replacing the whole
-`<param>.startsWith("...")` call expression with `!1` preserves syntax by
-construction, whatever boolean context follows — so the patch survives upstream
-rewrites of the guard/body as long as the startsWith guard itself exists.
 Byte-length is preserved (Bun single-file executable stores the JS blob with
-length metadata; same-length in-place edit is the safety contract). Slack for
-the marker comment is a constant 42 bytes regardless of the minified param
-name (the param appears once in the match and once in the replacement).
+length metadata; same-length in-place edit is the safety contract). The anchor
+matches the whole statement with back-references, so every minified identifier is
+captured rather than assumed; 64 bytes of statement leave 24 bytes of pad.
 
 Display-side is untouched on purpose: the CLI keeps a strip-list of the known
 wrapper suffixes/prefixes used when rendering messages in the UI — those
 strippers harmlessly no-op when the wrapper is absent and still clean up
 wrappers in pre-patch transcripts.
+
+Re-anchoring history: through 2.1.233 the guard read
+`if(e.startsWith("Another Claude session sent a message")` and the patch cut
+there. 2.1.250 hoisted that literal into a const and added the
+activity-observation branch, so the string-literal anchor vanished. If this fails
+again, grep the binary for "permission laundering" — that const still sits ~2 KB
+ahead of the producer — and re-read the function that builds the wrapper.
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
@@ -49,17 +64,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _binpatch import apply_patch, candidate_binaries
 
-# Stable anchor: the wrapper's own header string inside its idempotency guard.
-# The minified param name is captured, never assumed.
-ANCHOR = re.compile(rb'if\((\w+)\.startsWith\("Another Claude session sent a message"\)')
-# Sanity tokens that must appear shortly after the guard in the un-patched body.
-REQUIRE = [b"permission laundering", b"midTurn"]
-REQUIRE_WINDOW = 900
+# The peer-message return statement. Structural, not string-literal based:
+# `midTurn` is a stable property name and the back-references pin the two
+# ternaries to the same options object and the template to the same locals.
+ANCHOR = re.compile(
+    rb'let (\w+)=(\w+)\.midTurn\?(\w+):(\w+),(\w+)=\2\.midTurn\?(\w+):"";'
+    rb'return`\$\{\1\}\n\$\{(\w+)\}\n\n\$\{(\w+)\}\$\{\5\}`'
+)
+MSG_GROUP = 7  # the `${e}` inside the template — the message being wrapped
+# Sanity tokens that must appear shortly BEFORE the statement (they live in the
+# hoisted consts the statement interpolates).
+REQUIRE = [b"permission laundering", b"Another Claude session sent a message"]
+REQUIRE_WINDOW = 3500
 MARKER = b"[e8Xw peer-msg-warning off]"
 REINVESTIGATE = (
-    "re-investigate around the string 'Another Claude session sent a message' "
-    "in the binary (the teammate-message wrapper function; its precomputed "
-    "variants live in a nearby string array)"
+    "re-investigate around the string 'permission laundering' in the binary — the "
+    "const it belongs to is interpolated by the teammate-message wrapper a couple "
+    "of KB later; patch that wrapper's final return statement"
 )
 
 
@@ -78,21 +99,20 @@ def main() -> int:
             )
             return 1
         m = matches[0]
-        window = data[m.end() : m.end() + REQUIRE_WINDOW]
+        window = data[max(0, m.start() - REQUIRE_WINDOW) : m.start()]
         for tok in REQUIRE:
             if tok not in window:
                 print(
-                    f"sanity token {tok!r} missing within {REQUIRE_WINDOW} bytes after "
+                    f"sanity token {tok!r} missing within {REQUIRE_WINDOW} bytes before "
                     f"the anchor — refusing to patch (upstream structure changed); "
                     f"{REINVESTIGATE}",
                     file=sys.stdout,
                 )
                 return 1
 
-        param = m.group(1)
         original_seg = m.group(0)
-        core_head = b"return " + param + b";/*" + MARKER
-        core_tail = b"*/if(!1"
+        core_head = b"return " + m.group(MSG_GROUP) + b";/*" + MARKER
+        core_tail = b"*/"
         pad = len(original_seg) - len(core_head) - len(core_tail)
         if pad < 0:
             print(
@@ -123,7 +143,7 @@ def main() -> int:
         apply_patch(binp, data, patched, _verify)
         print(
             f"peer-msg-warning: applied patch to {binp} "
-            f"(teammate-message wrapper now returns input unchanged; "
+            f"(teammate-message wrapper now returns peer messages unchanged; "
             f"pristine backup at {binp}.orig)",
             file=sys.stderr,
         )
