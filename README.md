@@ -22,6 +22,8 @@ July 2026.
 | [`plan-exit-nag.py`](patches/plan-exit-nag.py) | Silences the phantom "## Exited Plan Mode" reminder that fires when you cycle permission modes *through* plan mode (shift+tab) without ever planning. Genuine exits with a plan file on disk keep their reminder. |
 | [`peer-msg-warning.py`](patches/peer-msg-warning.py) | Drops the ~90-word security boilerplate ("This came from another Claude session — not typed by your user... that's permission laundering") stamped onto *every* inbound teammate message. Repeated verbatim many times per session, it trains the reader to skip that region — the opposite of what a warning is for. Messages now arrive as their bare `<teammate-message>` blocks. |
 | [`interrupted-idle-notif.py`](patches/interrupted-idle-notif.py) | Stops the `idleReason:"interrupted"` idle_notification an in-process teammate mails the lead when the *user* interrupts it (Escape / stop) — the user did the stopping, so the ping tells the lead nothing. Sibling of `idle-notif.py` for the in-process runner path; "failed" and "available" notifications are untouched. |
+| [`auto-background.py`](patches/auto-background.py) | Makes **every** Bash command eligible for auto-background when its sync timeout expires. Stock runs an undocumented static check on the command string (a `$VAR` in a redirect target, a heredoc in the wrong shape, any `git`, a leading `sleep`) and SIGTERM-kills what fails it — exit 143, no output, not even the lines already printed ([anthropics/claude-code#79879](https://github.com/anthropics/claude-code/issues/79879)). Patched, those commands keep running in the background with their output intact, like everything else. |
+| [`zz-bytecode-off.py`](patches/zz-bytecode-off.py) | Not a behavior change — the patch that makes the others *work*. Since Bun 1.4.1 (claude 2.1.250+) each module ships pre-compiled bytecode that runs regardless of the JS text, so text edits are inert. This runs last, diffs the binary against its `.orig` backup, and disables the bytecode of every module whose text was patched, so Bun compiles those from source. See *How it works*. |
 
 The first thing a teammate said with `shutdown-reason.py` active:
 
@@ -69,9 +71,25 @@ next to the patched binary, or just reinstall/update Claude Code.
 ## How it works
 
 The `claude` binary is a Bun single-file executable: the JavaScript source is
-embedded in the ELF/Mach-O with length metadata, and the *text* is what
-executes (verified empirically by patching a `--help` string and watching the
-output change). That means:
+embedded in the ELF/Mach-O/PE with length metadata, alongside pre-compiled
+JSC bytecode for each module. Two facts follow:
+
+**The text edits must be same-length, and they only run if the module's
+bytecode is turned off.** Up to claude 2.1.233 (Bun 1.4.0) a text edit was
+enough — the loader noticed the source no longer matched and compiled it
+(verified back then by patching a `--help` string). From 2.1.250 (Bun 1.4.1)
+the loader runs the embedded bytecode without that check, so a text-only
+patch is dead bytes: `grep` finds the marker, the script says "already
+applied", and the process executes stock code. Every patch here was inert
+for a month before anyone noticed (2026-09-01). Bun does fall back to
+compiling a module from its text when that module's bytecode *length* in the
+standalone module table is zero, which is what `zz-bytecode-off.py` does for
+every module whose text differs from the `.orig` backup (`_bungraph.py`
+parses the table). The 5.5 MB main chunk compiles from source with no
+measurable startup difference. Consequence for authors: the only proof a
+patch works is a behavioral test from a freshly started process.
+
+That means:
 
 - **Same-length in-place edits only.** Inserting bytes would shift the blob
   and break it, so every patch replaces a region with exactly as many bytes —
