@@ -9,7 +9,8 @@ Repetition trains the reader to skip that region entirely, which defeats the
 warning — and the trust model is already covered by the user's own instructions.
 
 Shape as of 2.1.250 (the header text is hoisted into consts, so the guard no
-longer contains a greppable string literal — see the re-anchoring note below):
+longer contains a greppable string literal — see the re-anchoring note below;
+2.1.257 adds two locals to the final statement, see ANCHOR):
 
     var HK="Another Claude session sent a message",
         w=`${HK} while you were working:`, A=`${HK}:`,
@@ -38,7 +39,8 @@ to stock; only peer messages come back unwrapped.
 Byte-length is preserved (Bun single-file executable stores the JS blob with
 length metadata; same-length in-place edit is the safety contract). The anchor
 matches the whole statement with back-references, so every minified identifier is
-captured rather than assumed; 64 bytes of statement leave 24 bytes of pad.
+captured rather than assumed; the statement is ~120 bytes in 2.1.257, leaving
+ample room for the marker.
 
 Display-side is untouched on purpose: the CLI keeps a strip-list of the known
 wrapper suffixes/prefixes used when rendering messages in the UI — those
@@ -48,9 +50,15 @@ wrappers in pre-patch transcripts.
 Re-anchoring history: through 2.1.233 the guard read
 `if(e.startsWith("Another Claude session sent a message")` and the patch cut
 there. 2.1.250 hoisted that literal into a const and added the
-activity-observation branch, so the string-literal anchor vanished. If this fails
-again, grep the binary for "permission laundering" — that const still sits ~2 KB
-ahead of the producer — and re-read the function that builds the wrapper.
+activity-observation branch, so the string-literal anchor vanished. 2.1.257
+grew the final statement to three locals (`hostInjected` picks a different
+reply hint; `lineage==="descendant"` picks a different body for messages from
+agents this session spawned) — the return template is unchanged, and the patch
+still replaces the whole statement with `return e`, so those lanes are dropped
+along with the peer one. If this fails again, grep the binary for
+"permission laundering" — the consts sit a few KB ahead of the producer — and
+re-read the function that builds the wrapper (it also contains the
+activity-observation branch, `activityObservation!==void 0`).
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
@@ -67,15 +75,23 @@ from _binpatch import apply_patch, candidate_binaries
 # The peer-message return statement. Structural, not string-literal based:
 # `midTurn` is a stable property name and the back-references pin the two
 # ternaries to the same options object and the template to the same locals.
+# Shape as of 2.1.257 (two more lanes than 2.1.250: host-injected messages get
+# their own reply hint, descendant-lineage messages their own body):
+#   let s=n.midTurn?pe:me,
+#       r=n.hostInjected?n.midTurn?Oe:Ce:n.midTurn?G:"",
+#       o=n.lineage==="descendant"?ue:N;
+#   return`${s}\n${e}\n\n${o}${r}`
 ANCHOR = re.compile(
-    rb'let (\w+)=(\w+)\.midTurn\?(\w+):(\w+),(\w+)=\2\.midTurn\?(\w+):"";'
-    rb'return`\$\{\1\}\n\$\{(\w+)\}\n\n\$\{(\w+)\}\$\{\5\}`'
+    rb'let (\w+)=(\w+)\.midTurn\?(\w+):(\w+),'
+    rb'(\w+)=\2\.hostInjected\?\2\.midTurn\?(\w+):(\w+):\2\.midTurn\?(\w+):"",'
+    rb'(\w+)=\2\.lineage==="descendant"\?(\w+):(\w+);'
+    rb'return`\$\{\1\}\n\$\{(\w+)\}\n\n\$\{\9\}\$\{\5\}`'
 )
-MSG_GROUP = 7  # the `${e}` inside the template — the message being wrapped
+MSG_GROUP = 12  # the `${e}` inside the template — the message being wrapped
 # Sanity tokens that must appear shortly BEFORE the statement (they live in the
 # hoisted consts the statement interpolates).
 REQUIRE = [b"permission laundering", b"Another Claude session sent a message"]
-REQUIRE_WINDOW = 3500
+REQUIRE_WINDOW = 6000
 MARKER = b"[e8Xw peer-msg-warning off]"
 REINVESTIGATE = (
     "re-investigate around the string 'permission laundering' in the binary — the "

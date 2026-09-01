@@ -21,7 +21,11 @@ The edit gates the send on the abort flag and drops the now-dead ternary head:
 
 Interrupted -> nothing is sent (the else-branch just debug-logs). The
 "failed" and "available" sends, and the local idle-state bookkeeping around
-the call, are untouched. Byte-length is preserved: removing `<Ae>?"interrupted":`
+the call, are untouched. As of 2.1.257 the send lives in a block that first
+computes the teammate's final text to deliver as `result` (`{let o=...,
+p=ae?void 0:o.result,N=await be(...)`); the abort flag still appears inside
+that block but is always false there now, so `result` delivery for the
+"failed"/"available" cases is exactly stock. Byte-length is preserved: removing `<Ae>?"interrupted":`
 frees len(Ae)+15 bytes; inserting `&&!<Ae>` costs len(Ae)+3; the constant
 12-byte remainder is exactly the marker comment `/*hFq3nInt*/`, whose payload
 `hFq3nInt` is the idempotency signal (grep the binary for it).
@@ -48,11 +52,15 @@ assert len(COMMENT) == 12
 
 # The send site, with every minified identifier captured so the rewrite works
 # across renames. \w+ per name; the shape (agentName/color/teamName object
-# args + the idleReason ternary) is the stable part.
+# args + the idleReason ternary) is the stable part. Since 2.1.257 the send
+# sits inside a block that first computes the result to deliver
+# (`{let o=vbe(U,{emitTelemetry:!ae}),p=ae?void 0:o.result,N=await be(...`);
+# that prefix is captured as one group and re-emitted verbatim.
 SITE = re.compile(
-    rb'if\(!(\w+)&&!(\w+)\)await (\w+)\('
+    rb'if\(!(\w+)&&!(\w+)\)(\{let .{0,400}?\w+=await (\w+)\('
     rb'(\w+)\.agentName,(\w+)\.color,(\w+)\.teamName,'
-    rb'\{idleReason:(\w+)\?"interrupted":'
+    rb'\{idleReason:)(\w+)\?"interrupted":',
+    re.DOTALL,
 )
 # Debug string that must sit shortly after the call — proves we're at the
 # in-process-runner site and not some future lookalike.
@@ -106,12 +114,8 @@ def main() -> int:
         )
         return 1
 
-    ve, y, send_fn, o1, o2, o3, abort = m.groups()
-    new = (
-        b"if(!" + ve + b"&&!" + y + b"&&!" + abort + b")await " + send_fn + b"("
-        + o1 + b".agentName," + o2 + b".color," + o3 + b".teamName,"
-        + b"{idleReason:" + COMMENT
-    )
+    ve, y, prefix, _send_fn, _o1, _o2, _o3, abort = m.groups()
+    new = b"if(!" + ve + b"&&!" + y + b"&&!" + abort + b")" + prefix + COMMENT
     old = data[m.start() : m.end()]
     assert len(new) == len(old), (len(new), len(old))
 

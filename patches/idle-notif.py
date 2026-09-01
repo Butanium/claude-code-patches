@@ -30,6 +30,15 @@ ONLY the per-turn `idleReason:"available"` ping is killed. The separate `dh4`
 path (idleReason:"failed" / teammate_terminated) is untouched, so genuine
 failure/termination signals still reach the lead.
 
+Since 2.1.257 the callback also does "swarm idle result delivery": it reads the
+teammate's final assistant text off the transcript and ships it as `result:`
+inside the same idle_notification (skipped when the teammate already DM'd the
+lead via SendMessage that turn). This patch drops that too — the send is the
+same mailbox write. Teammates that report via SendMessage lose nothing; a
+teammate that just ends its turn with plain text no longer has that text
+forwarded to the lead. The try/finally around the send only feeds telemetry
+(`swarm_idle_result_delivery`), so skipping it has no state effect.
+
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
 """
@@ -44,6 +53,7 @@ from _binpatch import apply_patch, candidate_binaries
 # Stable, human-readable anchors (no minified identifiers — survive rebuilds).
 SUFFIX = b'},"Failed to send idle notification to team leader"'
 ARROW = b'=>{'
+ARROW_WINDOW = 2000
 # Replacement = COMMENT_OPEN + MARKER + space-padding + COMMENT_CLOSE, sized to
 # exactly fill the region. MARKER is unique to this patch, so its presence
 # anywhere in the binary is the idempotency signal.
@@ -66,13 +76,15 @@ def locate_body(data: bytes) -> tuple[int, int]:
     suffix_start = data.index(SUFFIX)
     # body ends at the '}' that begins SUFFIX (closes the arrow body)
     body_end = suffix_start
-    # find the arrow '=>{' that opens this body, searching backward within 400 bytes
-    window_start = max(0, body_end - 400)
+    # find the arrow '=>{' that opens this body, searching backward within
+    # ARROW_WINDOW bytes (the body was ~250 bytes through 2.1.250; 2.1.257's
+    # result-delivery additions took it to ~560).
+    window_start = max(0, body_end - ARROW_WINDOW)
     rel = data.rfind(ARROW, window_start, body_end)
     if rel == -1:
         raise RuntimeError(
-            "could not find '=>{' opening the Stop-hook callback within 400 "
-            "bytes before the error string — upstream structure changed"
+            f"could not find '=>{{' opening the Stop-hook callback within "
+            f"{ARROW_WINDOW} bytes before the error string — upstream structure changed"
         )
     body_start = rel + len(ARROW)
     return body_start, body_end

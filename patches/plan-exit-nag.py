@@ -22,6 +22,8 @@ planExists=true. This patch gates the attachment RENDERER on it:
 ->  plan_mode_exit:(e)=>{if(!e.planExists)return[];let t=` The plan file is
         located at ${e.planFilePath}.`;return Ep([...])}
 
+(`t` is a minified local — `n` in 2.1.257 — captured by regex, not assumed.)
+
 so no-plan exits render to nothing while with-plan exits keep the reminder and
 the plan-file pointer (tail slightly shortened to pay for the added guard —
 same-length in-place edit, since the Bun single-file executable stores the JS
@@ -41,6 +43,7 @@ Exit 1 if the patch can't be applied (runner relays the message to Claude).
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -53,37 +56,38 @@ from _binpatch import apply_patch, candidate_binaries
 # wrapper/element-constructor names there (`Ep([Dn(` in 2.1.197, `Hp([Ln(` in
 # 2.1.201) are minified and renamed every build, so we neither match nor re-emit
 # them: the patch just injects an early `return[]` guard and leaves the original
-# return statement untouched. Rename-proof across updates.
-PATTERN = (
-    b"plan_mode_exit:(e)=>{let t=e.planExists?"
-    b"` The plan file is located at ${e.planFilePath} if you need to reference it.`"
-    b':"";'
+# return statement untouched. The local holding the plan-file suffix is minified
+# too (`t` through 2.1.250, `n` in 2.1.257) — it is interpolated as `${t}` in the
+# untouched return statement, so it is captured and re-emitted verbatim.
+PATTERN = re.compile(
+    rb"plan_mode_exit:\(e\)=>\{let (\w+)=e\.planExists\?"
+    rb"` The plan file is located at \$\{e\.planFilePath\} if you need to reference it\.`"
+    rb':"";'
 )
 GUARD = b"plan_mode_exit:(e)=>{if(!e.planExists)return[];"
-CORE = GUARD + b"let t=` The plan file is located at ${e.planFilePath}.`;"
 
 
-def build_replacement() -> bytes:
-    pad = len(PATTERN) - len(CORE)
+def build_replacement(m: re.Match[bytes]) -> bytes:
+    var = m.group(1)
+    core = GUARD + b"let " + var + b"=` The plan file is located at ${e.planFilePath}.`;"
+    pad = len(m.group(0)) - len(core)
     if pad < 0:
         raise RuntimeError("replacement longer than pattern — recompute")
     # Pad with spaces at the end (between the injected `let t=…;` and the original
     # untouched `return …` statement) — JS-legal inter-statement whitespace.
-    rep = CORE + b" " * pad
-    assert len(rep) == len(PATTERN)
+    rep = core + b" " * pad
+    assert len(rep) == len(m.group(0))
     return rep
 
 
 def main() -> int:
-    rep = build_replacement()
-
     target = None
     for binp in candidate_binaries():
         data = binp.read_bytes()
         if GUARD in data:
             print(f"plan-exit-nag: confirmed already patched ({binp})", file=sys.stderr)
             return 0
-        if PATTERN in data:
+        if PATTERN.search(data) is not None:
             target = (binp, data)
             break
 
@@ -98,22 +102,28 @@ def main() -> int:
         return 1
 
     binp, data = target
-    n = data.count(PATTERN)
-    if n != 1:
+    matches = list(PATTERN.finditer(data))
+    if len(matches) != 1:
         print(
-            f"expected exactly 1 occurrence of the renderer pattern, found {n} "
-            f"in {binp} — upstream code changed; refusing to patch",
+            f"expected exactly 1 occurrence of the renderer pattern, found "
+            f"{len(matches)} in {binp} — upstream code changed; refusing to patch",
             file=sys.stderr,
         )
         return 1
+    m = matches[0]
+    rep = build_replacement(m)
 
-    patched = data.replace(PATTERN, rep)
+    patched = data[: m.start()] + rep + data[m.end() :]
     assert len(patched) == len(data)
 
     # Write to a temp copy, verify, then atomically swap in (rename-aside on
     # Windows where the running .exe is locked; see _binpatch.apply_patch).
     def _verify(written: bytes) -> None:
-        if len(written) != len(data) or GUARD not in written or PATTERN in written:
+        if (
+            len(written) != len(data)
+            or GUARD not in written
+            or PATTERN.search(written) is not None
+        ):
             raise RuntimeError("post-write verification failed — live binary untouched")
 
     apply_patch(binp, data, patched, _verify)
