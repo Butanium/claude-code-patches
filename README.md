@@ -54,7 +54,14 @@ The runner executes every executable file in `patches/` on each session start.
 Patches that are already applied confirm and exit quietly; patches that can't
 apply (upstream changed) print a failure into Claude's context so your session
 knows the behavior change is not active — and can go re-derive the patch.
-Don't want one of the patches? Delete it or `chmod -x` it.
+Don't want one of the patches? Delete it, `chmod -x` it, or park it without
+touching the checkout by listing its filename in the `CLAUDE_CLI_PATCHES_SKIP`
+environment variable (comma-separated, e.g. in the `env` block of
+`settings.json`: `"CLAUDE_CLI_PATCHES_SKIP": "idle-notif.py"`). Skipping only
+stops re-applying — a patch already baked into the current binary stays until
+the next Claude Code update ships a fresh one, or you restore the `.orig`
+backup and re-run the runner. `CLAUDE_CLI_PATCHES_DIR` points the runner at a
+different patch directory altogether.
 
 To restore a pristine binary: `~/.local/share/claude/versions/<ver>.orig` sits
 next to the patched binary, or just reinstall/update Claude Code.
