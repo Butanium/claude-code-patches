@@ -87,7 +87,12 @@ compiling a module from its text when that module's bytecode *length* in the
 standalone module table is zero, which is what `zz-bytecode-off.py` does for
 every module whose text differs from the `.orig` backup (`_bungraph.py`
 parses the table). The 5.5 MB main chunk compiles from source with no
-measurable startup difference. Consequence for authors: the only proof a
+measurable startup difference. Gotcha when that parser breaks: it locates the
+graph by checking that the module table resolves to Bun virtual-FS names, whose
+root is platform-dependent — `/$bunfs/root/…` on POSIX but `B:/~BUN/root/…` on
+Windows. Hard-coding the POSIX one made every base candidate look wrong on
+Windows and the script failed with "could not recover the Bun graph base offset"
+(fixed 2026-09-02); `NAME_PREFIXES` now lists both. Consequence for authors: the only proof a
 patch works is a behavioral test from a freshly started process.
 
 That means:
