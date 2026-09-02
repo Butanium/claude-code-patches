@@ -111,9 +111,11 @@ That means:
   applied".
 
 The fun part of the technique is what you can fit in the byte budget:
-`shutdown-reason.py` smuggles a value from one function to another through an
-unused property on the `Date` constructor, and pays for the new JSON field by
-shortening a timestamp nobody parses.
+`shutdown-reason.py` smuggles two values from one function to another through
+unused properties on the `Date` constructor: the reason itself, and the
+frame's ISO timestamp, computed a step earlier where a deleted error message
+left ~150 spare bytes, so the 24-byte inline timestamp expression shrinks to a
+6-byte property read that pays for the new JSON field.
 
 ### Writing your own
 

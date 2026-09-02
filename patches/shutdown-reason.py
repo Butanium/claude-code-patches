@@ -36,9 +36,14 @@ A. validateInput: replace the approve+reason rejection statement with
    an earlier teammate can never leak into a later silent approve.
 
 B. RCo: embed `reason:Date.q` into the frame, paying for the bytes by
-   shortening the frame's cosmetic timestamp (`new Date().toISOString()` ->
-   `Date()`). No consumer parses that field (the mailbox envelope has its own
-   ISO timestamp; the zod schema only requires a string).
+   replacing the inline timestamp expression (`new Date().toISOString()`, 24
+   bytes) with `Date.r` (6 bytes) — a second stash that edit A fills with the
+   same ISO string one step earlier (`Date.r=new Date().toISOString()`). The
+   builder has exactly one caller, handleShutdownApproval in SendMessageTool,
+   which is only reached through validateInput, so `Date.r` is always fresh.
+   (v1 of this patch used `Date()` there, a non-ISO string: the lead's display
+   sanitizer checks frame timestamps against a strict ISO regex and rendered
+   it as "[invalid timestamp]". The script migrates v1 binaries in place.)
 
 Resulting behavior: approve without reason is byte-identical to stock
 (JSON.stringify drops the undefined key, the frame still strict-parses and
@@ -71,6 +76,10 @@ PATTERN_A = (
 )
 CORE_A = (
     b'if(e.message.type==="shutdown_response"&&e.message.approve)'
+    b"Date.q=e.message.reason,Date.r=new Date().toISOString();"
+)
+CORE_A_V1 = (
+    b'if(e.message.type==="shutdown_response"&&e.message.approve)'
     b"Date.q=e.message.reason;"
 )
 
@@ -85,26 +94,31 @@ PATTERN_B = (
 )
 CORE_B = (
     b'{type:"shutdown_approved",requestId:e.requestId,'
+    b"from:e.from,reason:Date.q,timestamp:Date.r,paneId:e.paneId,"
+    b"backendType:e.backendType"
+)
+CORE_B_V1 = (
+    b'{type:"shutdown_approved",requestId:e.requestId,'
     b"from:e.from,reason:Date.q,timestamp:Date(),paneId:e.paneId,"
     b"backendType:e.backendType"
 )
 TAIL_B = b"}"
 
 
-def build_replacement_a() -> bytes:
-    pad = len(PATTERN_A) - len(CORE_A) - len(MARKER) - 4  # 4 = /* */
+def build_replacement_a(core: bytes = CORE_A) -> bytes:
+    pad = len(PATTERN_A) - len(core) - len(MARKER) - 4  # 4 = /* */
     if pad < 0:
         raise RuntimeError("edit A replacement longer than pattern — recompute")
-    rep = CORE_A + b"/*" + MARKER + b" " * pad + b"*/"
+    rep = core + b"/*" + MARKER + b" " * pad + b"*/"
     assert len(rep) == len(PATTERN_A)
     return rep
 
 
-def build_replacement_b() -> bytes:
-    pad = len(PATTERN_B) - len(CORE_B) - len(TAIL_B)
+def build_replacement_b(core: bytes = CORE_B) -> bytes:
+    pad = len(PATTERN_B) - len(core) - len(TAIL_B)
     if pad < 0:
         raise RuntimeError("edit B replacement longer than pattern — recompute")
-    rep = CORE_B + b" " * pad + TAIL_B
+    rep = core + b" " * pad + TAIL_B
     assert len(rep) == len(PATTERN_B)
     return rep
 
@@ -112,21 +126,35 @@ def build_replacement_b() -> bytes:
 def main() -> int:
     rep_a = build_replacement_a()
     rep_b = build_replacement_b()
+    rep_a_v1 = build_replacement_a(CORE_A_V1)
+    rep_b_v1 = build_replacement_b(CORE_B_V1)
 
     target = None
     for binp in candidate_binaries():
         data = binp.read_bytes()
         if MARKER in data:
-            if rep_b not in data:
-                print(
-                    f"shutdown-reason: MARKER present but edit B missing in {binp} "
-                    f"— binary is half-patched (should be impossible: both edits "
-                    f"land in one atomic write). Restore {binp}.orig and re-run.",
-                    file=sys.stderr,
-                )
-                return 1
-            print(f"shutdown-reason: confirmed already patched ({binp})", file=sys.stderr)
-            return 0
+            if rep_b in data and rep_a in data:
+                print(f"shutdown-reason: confirmed already patched ({binp})", file=sys.stderr)
+                return 0
+            if rep_a_v1 in data and rep_b_v1 in data:
+                # v1 edits (Date() timestamp) -> v2, same lengths, in one write
+                patched = data.replace(rep_a_v1, rep_a).replace(rep_b_v1, rep_b)
+                assert len(patched) == len(data)
+
+                def _verify_v2(written: bytes) -> None:
+                    if len(written) != len(data) or rep_a not in written or rep_b not in written:
+                        raise RuntimeError("post-write verification failed — live binary untouched")
+
+                apply_patch(binp, data, patched, _verify_v2)
+                print(f"shutdown-reason: migrated v1 edits to v2 (ISO timestamp) in {binp}", file=sys.stderr)
+                return 0
+            print(
+                f"shutdown-reason: MARKER present but the edits don't match v1 or v2 in "
+                f"{binp} — binary is half-patched (should be impossible: both edits "
+                f"land in one atomic write). Restore {binp}.orig and re-run.",
+                file=sys.stderr,
+            )
+            return 1
         if PATTERN_A in data or PATTERN_B in data:
             target = (binp, data)
             break
