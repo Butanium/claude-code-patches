@@ -75,9 +75,10 @@ embedded in the ELF/Mach-O/PE with length metadata, alongside pre-compiled
 JSC bytecode for each module. Two facts follow:
 
 **The text edits must be same-length, and they only run if the module's
-bytecode is turned off.** Up to claude 2.1.233 (Bun 1.4.0) a text edit was
-enough — the loader noticed the source no longer matched and compiled it
-(verified back then by patching a `--help` string). From 2.1.250 (Bun 1.4.1)
+bytecode is turned off.** Through mid-2026 a text edit was enough — patches were
+verified by behavior on 2.1.216 and 2.1.233 (Bun 1.4.0), which suggests the
+loader then noticed the source no longer matched and compiled it; that
+mechanism is inferred from the timeline, not read out of Bun. From 2.1.250 (Bun 1.4.1)
 the loader runs the embedded bytecode without that check, so a text-only
 patch is dead bytes: `grep` finds the marker, the script says "already
 applied", and the process executes stock code. Every patch here was inert
