@@ -45,6 +45,17 @@ B. RCo: embed `reason:Date.q` into the frame, paying for the bytes by
    sanitizer checks frame timestamps against a strict ISO regex and rendered
    it as "[invalid timestamp]". The script migrates v1 binaries in place.)
 
+C. Frame display/receive sanitizer (`mbt`): the per-frame-type spec table has
+   no `reason` entry for `shutdown_approved` (stock never carries one), so the
+   reason falls into the generic unknown-key path and is hard-cut at 256
+   characters (`$2(x, Z)`, Z=256) — mid-word, no marker. Replace the
+   `backendType:{kind:"backend-type"}` spec (a display-only whitelist of
+   tmux/iterm2/in-process) with `reason:{kind:"body",bound:<XL>}`, the same
+   bound the idle-notification `result` gets (4000 chars, " [truncated]"
+   suffix beyond that). backendType then takes the generic path, which passes
+   its short literal through unchanged. The bound identifier is minified, so
+   it is captured from the idle_notification entry of the same table.
+
 Resulting behavior: approve without reason is byte-identical to stock
 (JSON.stringify drops the undefined key, the frame still strict-parses and
 stays hidden from the transcript UI). Approve WITH reason delivers
@@ -104,6 +115,32 @@ CORE_B_V1 = (
 )
 TAIL_B = b"}"
 
+# --- Edit C: sanitizer spec table -> explicit reason bound for shutdown_approved
+import re
+
+PATTERN_C = (
+    b'["shutdown_approved",{requestId:{kind:"request-id"},'
+    b'from:{kind:"envelope-pinned-id"},timestamp:{kind:"timestamp"},'
+    b'paneId:{kind:"pane-id"},backendType:{kind:"backend-type"}}]'
+)
+# the idle_notification entry names the 4000-char body bound (XL in 2.1.257)
+BOUND_RE = re.compile(rb'\["idle_notification",\{[^\]]{0,400}?result:\{kind:"body",bound:(\w+)\}')
+
+
+def build_replacement_c(bound: bytes) -> bytes:
+    core = (
+        b'["shutdown_approved",{requestId:{kind:"request-id"},'
+        b'from:{kind:"envelope-pinned-id"},timestamp:{kind:"timestamp"},'
+        b'paneId:{kind:"pane-id"},reason:{kind:"body",bound:' + bound + b"}"
+    )
+    tail = b"}]"
+    pad = len(PATTERN_C) - len(core) - len(tail)
+    if pad < 0:
+        raise RuntimeError("edit C replacement longer than pattern — recompute")
+    rep = core + b" " * pad + tail
+    assert len(rep) == len(PATTERN_C)
+    return rep
+
 
 def build_replacement_a(core: bytes = CORE_A) -> bytes:
     pad = len(PATTERN_A) - len(core) - len(MARKER) - 4  # 4 = /* */
@@ -124,82 +161,64 @@ def build_replacement_b(core: bytes = CORE_B) -> bytes:
 
 
 def main() -> int:
-    rep_a = build_replacement_a()
-    rep_b = build_replacement_b()
-    rep_a_v1 = build_replacement_a(CORE_A_V1)
-    rep_b_v1 = build_replacement_b(CORE_B_V1)
+    cands = candidate_binaries()
+    if not cands:
+        print("no claude binary found (unknown install layout)", file=sys.stderr)
+        return 1
+    binp = cands[0]
+    data = binp.read_bytes()
 
-    target = None
-    for binp in candidate_binaries():
-        data = binp.read_bytes()
-        if MARKER in data:
-            if rep_b in data and rep_a in data:
-                print(f"shutdown-reason: confirmed already patched ({binp})", file=sys.stderr)
-                return 0
-            if rep_a_v1 in data and rep_b_v1 in data:
-                # v1 edits (Date() timestamp) -> v2, same lengths, in one write
-                patched = data.replace(rep_a_v1, rep_a).replace(rep_b_v1, rep_b)
-                assert len(patched) == len(data)
-
-                def _verify_v2(written: bytes) -> None:
-                    if len(written) != len(data) or rep_a not in written or rep_b not in written:
-                        raise RuntimeError("post-write verification failed — live binary untouched")
-
-                apply_patch(binp, data, patched, _verify_v2)
-                print(f"shutdown-reason: migrated v1 edits to v2 (ISO timestamp) in {binp}", file=sys.stderr)
-                return 0
-            print(
-                f"shutdown-reason: MARKER present but the edits don't match v1 or v2 in "
-                f"{binp} — binary is half-patched (should be impossible: both edits "
-                f"land in one atomic write). Restore {binp}.orig and re-run.",
-                file=sys.stderr,
-            )
-            return 1
-        if PATTERN_A in data or PATTERN_B in data:
-            target = (binp, data)
-            break
-
-    if target is None:
+    m = BOUND_RE.search(data)
+    if not m:
         print(
-            f"neither pattern nor marker found in any candidate binary "
-            f"({[str(p) for p in candidate_binaries()]}) — upstream code changed "
-            f"or unknown install layout; re-investigate around the string "
-            f"'reason is only delivered on rejections' and the "
-            f"'{{type:\"shutdown_approved\",requestId:...}}' frame object in the binary",
+            "shutdown-reason: could not find the idle_notification sanitizer spec "
+            "(anchor: `[\"idle_notification\",{` ... `result:{kind:\"body\",bound:`) — "
+            f"upstream code changed; re-investigate the frame spec table in {binp}",
             file=sys.stderr,
         )
         return 1
+    rep_c = build_replacement_c(m.group(1))
 
-    binp, data = target
-    for label, pat in (("A (validateInput)", PATTERN_A), ("B (RCo)", PATTERN_B)):
-        n = data.count(pat)
+    # (stock pattern, previous-version replacements that must be upgraded, final replacement)
+    edits = [
+        ("A (validateInput)", PATTERN_A, [build_replacement_a(CORE_A_V1)], build_replacement_a()),
+        ("B (frame builder)", PATTERN_B, [build_replacement_b(CORE_B_V1)], build_replacement_b()),
+        ("C (sanitizer spec)", PATTERN_C, [], rep_c),
+    ]
+    patched = data
+    applied = []
+    for label, pattern, olds, final in edits:
+        if final in patched:
+            continue
+        src = next((o for o in olds if o in patched), None)
+        if src is None:
+            src = pattern
+        n = patched.count(src)
         if n != 1:
             print(
-                f"expected exactly 1 occurrence of pattern {label}, found {n} "
-                f"in {binp} — upstream code changed; refusing to patch",
+                f"shutdown-reason: expected exactly 1 occurrence of edit {label}'s anchor, "
+                f"found {n} in {binp} — upstream code changed; re-investigate around "
+                f"'reason is only delivered on rejections', the "
+                f"'{{type:\"shutdown_approved\",requestId:...}}' frame object and the "
+                f"'[\"shutdown_approved\",{{requestId:{{kind:...' sanitizer spec",
                 file=sys.stderr,
             )
             return 1
-
-    patched = data.replace(PATTERN_A, rep_a).replace(PATTERN_B, rep_b)
+        patched = patched.replace(src, final)
+        applied.append(label)
     assert len(patched) == len(data)
 
-    # Write to a temp copy, verify, then atomically swap in (rename-aside on
-    # Windows where the running .exe is locked; see _binpatch.apply_patch).
+    if not applied:
+        print(f"shutdown-reason: confirmed already patched ({binp})", file=sys.stderr)
+        return 0
+
     def _verify(written: bytes) -> None:
-        if (
-            len(written) != len(data)
-            or MARKER not in written
-            or rep_b not in written
-            or PATTERN_A in written
-            or PATTERN_B in written
-        ):
+        if len(written) != len(data) or any(e[3] not in written for e in edits):
             raise RuntimeError("post-write verification failed — live binary untouched")
 
     apply_patch(binp, data, patched, _verify)
-
     print(
-        f"shutdown-reason: applied both edits to {binp} "
+        f"shutdown-reason: applied edit(s) {', '.join(applied)} to {binp} "
         f"(pristine backup at {binp}.orig)",
         file=sys.stderr,
     )
