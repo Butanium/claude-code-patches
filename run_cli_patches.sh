@@ -8,6 +8,11 @@
 # Failures are printed to stdout so they land in Claude's context (SessionStart
 # stdout is injected as context); successes go to stderr (verbose-mode only).
 #
+# Patches are invoked by extension (.py -> python3, .sh -> bash) rather than by
+# the executable bit. The bit is git metadata that a submodule checkout, a umask
+# or an editor can drop, and losing it used to park a patch silently — the
+# supported way to park one is CLAUDE_CLI_PATCHES_SKIP, below.
+#
 # Override the patch directory with CLAUDE_CLI_PATCHES_DIR if you keep your own
 # set elsewhere. To park a patch without deleting it, list its filename in
 # CLAUDE_CLI_PATCHES_SKIP (comma-separated, e.g. "idle-notif.py,task-nag.py");
@@ -20,15 +25,23 @@ DIR="${CLAUDE_CLI_PATCHES_DIR:-$(cd "$(dirname "$0")" && pwd)/patches}"
 [ -d "$DIR" ] || exit 0
 SKIP=",${CLAUDE_CLI_PATCHES_SKIP:-},"
 
+run_patch() {
+    case "$1" in
+        *.py) python3 "$1" 2>&1 ;;
+        *.sh) bash "$1" 2>&1 ;;
+        *)    if [ -x "$1" ]; then "$1" 2>&1
+              else echo "no interpreter for this extension and the file is not executable"; return 126
+              fi ;;
+    esac
+}
+
 for patch in "$DIR"/*; do
     [ -f "$patch" ] || continue
     name="$(basename "$patch")"
+    case "$name" in __pycache__|*.pyc|.*) continue;; esac
     case "$SKIP" in *",$name,"*) echo "cli-patch $name: skipped (CLAUDE_CLI_PATCHES_SKIP)" >&2; continue;; esac
-    if [ ! -x "$patch" ]; then
-        echo "CLI patch '$name' is not executable — skipped (chmod +x it or remove it): $patch"
-        continue
-    fi
-    output="$("$patch" 2>&1)"
+
+    output="$(run_patch "$patch")"
     rc=$?
     if [ "$rc" -eq 0 ]; then
         echo "cli-patch $name: $output" >&2
