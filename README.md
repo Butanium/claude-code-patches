@@ -169,6 +169,27 @@ The aiming is done by `$CLAUDE_CLI_PATCH_TARGET`, which
 refuses to fall back to the installed binary if the path is bogus. Any patch in
 this repo can be pointed at any binary that way.
 
+## Reading the bundle: `clisrc.py`
+
+Authoring a patch — and answering any "what does the CLI actually do here?"
+question — starts with finding the code. Don't grep the binary: it is ~215 MB,
+each `grep -ao` over it costs 30–120 s, and a hit is a byte offset in a wall of
+minified JS. `clisrc.py` unpacks the embedded module graph (`_bungraph.parse`)
+into real files instead:
+
+```bash
+./clisrc.py                              # -> ~/.cache/claude-cli-src/<version>/  (1802 files, 41 MB, 0.3 s)
+./clisrc.py --find 'fork gate is on'     # same, then grep it: 0.2 s, file:line
+```
+
+Cached per version, so re-running is free and an update just unpacks anew. After
+the first run the normal Read/Grep tools work on the tree, and a hit names its
+chunk — which is also the module you will need for `zz-bytecode-off.py`.
+
+Chasing a minified symbol: find the string, read the identifiers around it, then
+grep `function <name>(){` in the tree for the definition. That is how the fork
+gate below `isInteractive()` was traced.
+
 ## Caveats
 
 - Unofficial; not affiliated with or endorsed by Anthropic. You're modifying
