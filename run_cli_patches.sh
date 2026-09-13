@@ -25,9 +25,19 @@ DIR="${CLAUDE_CLI_PATCHES_DIR:-$(cd "$(dirname "$0")" && pwd)/patches}"
 [ -d "$DIR" ] || exit 0
 SKIP=",${CLAUDE_CLI_PATCHES_SKIP:-},"
 
+# `python3` can be on PATH but non-functional — e.g. the Windows Store app
+# execution alias, which exits nonzero without running anything. Probe once
+# up front and fall back to `python` if that's the case.
+PYTHON=python3
+if ! python3 -c "" >/dev/null 2>&1; then
+    if command -v python >/dev/null 2>&1 && python -c "" >/dev/null 2>&1; then
+        PYTHON=python
+    fi
+fi
+
 run_patch() {
     case "$1" in
-        *.py) python3 "$1" 2>&1 ;;
+        *.py) "$PYTHON" "$1" 2>&1 ;;
         *.sh) bash "$1" 2>&1 ;;
         *)    if [ -x "$1" ]; then "$1" 2>&1
               else echo "no interpreter for this extension and the file is not executable"; return 126
