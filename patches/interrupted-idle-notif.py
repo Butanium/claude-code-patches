@@ -2,13 +2,18 @@
 """CLI patch: don't ping the lead when the user interrupts an in-process teammate.
 
 When the user stops an in-process teammate (Escape / TaskStop), the runner
-returns the teammate to idle and mails the lead an idle_notification:
+returns the teammate to idle and mails the lead an idle_notification (shape as
+of 2.1.270):
 
-    let Ze=Qe?.reason;
-    if(!Ve&&!y)await Vrd(t.agentName,t.color,t.teamName,
-        {idleReason:Ae?"interrupted":Ze!==void 0?"failed":"available",...});
+    let Ae=se?.reason;
+    if(xe){let r=bTe(O,{emitTelemetry:!ae}),f=ae?void 0:r.result,
+        E=await we(e.agentName,e.color,e.teamName,
+          {idleReason:ae?"interrupted":Ae!==void 0?"failed":"available",...});
+      ...}
+    else t(`[inProcessRunner] Skipping duplicate idle notification for ...`);
 
-`Ae` is the "current work aborted (Escape pressed)" flag. The resulting
+`ae` (`let ae=Ce||I.signal.aborted`) is the "current work aborted (Escape
+pressed)" flag; `xe` is the not-already-idle guard. The resulting
     {"type":"idle_notification","from":"...","idleReason":"interrupted"}
 turn in the lead's transcript is pure noise: the user did the interrupting,
 and the lead separately learns the task state from the harness. (This is the
@@ -17,18 +22,19 @@ in-process-runner sibling of idle-notif.py, which kills the tmux Stop-hook
 
 The edit gates the send on the abort flag and drops the now-dead ternary head:
 
-    if(!Ve&&!y&&!Ae)await Vrd(...,{idleReason:/*hFq3nInt*/Ze!==void 0?...});
+    if(xe&&!ae){let r=...,E=await we(...,{idleReason:/*hFq3nInt*/Ae!==void 0?...});
 
-Interrupted -> nothing is sent (the else-branch just debug-logs). The
-"failed" and "available" sends, and the local idle-state bookkeeping around
-the call, are untouched. As of 2.1.257 the send lives in a block that first
-computes the teammate's final text to deliver as `result` (`{let o=...,
-p=ae?void 0:o.result,N=await be(...)`); the abort flag still appears inside
-that block but is always false there now, so `result` delivery for the
-"failed"/"available" cases is exactly stock. Byte-length is preserved: removing `<Ae>?"interrupted":`
-frees len(Ae)+15 bytes; inserting `&&!<Ae>` costs len(Ae)+3; the constant
-12-byte remainder is exactly the marker comment `/*hFq3nInt*/`, whose payload
-`hFq3nInt` is the idempotency signal (grep the binary for it).
+Interrupted -> nothing is sent (the else-branch just debug-logs, and its
+"duplicate" wording is now also reached on a genuine interrupt — a debug line,
+not model- or user-facing). The "failed" and "available" sends, and the local
+idle-state bookkeeping around the call, are untouched. The abort flag still
+appears inside the block (`emitTelemetry:!ae`, `f=ae?void 0:r.result`) but is
+always false there now, so telemetry and `result` delivery for the
+"failed"/"available" cases are exactly stock. Byte-length is preserved:
+removing `<ae>?"interrupted":` frees len(ae)+15 bytes; inserting `&&!<ae>`
+costs len(ae)+3; the constant 12-byte remainder is exactly the marker comment
+`/*hFq3nInt*/`, whose payload `hFq3nInt` is the idempotency signal (grep the
+binary for it).
 
 Re-investigation anchor if this stops applying after an update: the regex below
 around `idleReason:(\\w+)\\?"interrupted":`, with the debug string
@@ -44,22 +50,27 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries
 
 MARKER = b"hFq3nInt"
 COMMENT = b"/*" + MARKER + b"*/"
 assert len(COMMENT) == 12
 
 # The send site, with every minified identifier captured so the rewrite works
-# across renames. \w+ per name; the shape (agentName/color/teamName object
-# args + the idleReason ternary) is the stable part. Since 2.1.257 the send
-# sits inside a block that first computes the result to deliver
-# (`{let o=vbe(U,{emitTelemetry:!ae}),p=ae?void 0:o.result,N=await be(...`);
-# that prefix is captured as one group and re-emitted verbatim.
+# across renames; the shape (agentName/color/teamName positional args + the
+# idleReason ternary) is the stable part. The send sits inside a block that
+# first computes the result to deliver (`{let r=bTe(O,{emitTelemetry:!ae}),
+# f=ae?void 0:r.result,E=await we(...`); that prefix is captured as one group
+# and re-emitted verbatim.
+#
+# 2.1.270 collapsed the two-flag guard (`if(!Ve&&!y)`) into one hoisted local
+# (`let xe=!(De?.type==="in_process_teammate"&&De.isIdle)&&!l; ... if(xe){`),
+# so the guard is matched as a single identifier and `&&!<abort>` is appended
+# to it.
 SITE = re.compile(
-    rb'if\(!(\w+)&&!(\w+)\)(\{let .{0,400}?\w+=await (\w+)\('
-    rb'(\w+)\.agentName,(\w+)\.color,(\w+)\.teamName,'
-    rb'\{idleReason:)(\w+)\?"interrupted":',
+    rb"if\((" + JSID + rb")\)(\{let " + JSID + rb"=.{0,400}?" + JSID + rb"=await "
+    + JSID + rb"\((" + JSID + rb")\.agentName,\3\.color,\3\.teamName,"
+    rb'\{idleReason:)(' + JSID + rb')\?"interrupted":',
     re.DOTALL,
 )
 # Debug string that must sit shortly after the call — proves we're at the
@@ -114,8 +125,8 @@ def main() -> int:
         )
         return 1
 
-    ve, y, prefix, _send_fn, _o1, _o2, _o3, abort = m.groups()
-    new = b"if(!" + ve + b"&&!" + y + b"&&!" + abort + b")" + prefix + COMMENT
+    guard, prefix, _agent_obj, abort = m.groups()
+    new = b"if(" + guard + b"&&!" + abort + b")" + prefix + COMMENT
     old = data[m.start() : m.end()]
     assert len(new) == len(old), (len(new), len(old))
 

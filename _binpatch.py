@@ -32,6 +32,14 @@ import time
 from pathlib import Path
 from typing import Callable
 
+# A minified JS identifier, for patterns that capture names the bundler renames
+# every build. Use this instead of `\w+`: minifiers hand out `$`-containing names
+# (`$e`, `_$`, `$`) once the short pool is exhausted, and `\w` excludes `$`, so a
+# `\w+`-based anchor breaks on the build that happens to rename one local into
+# that pool. That is exactly how `peer-msg-warning` died on 2.1.270 — a single
+# local went `Ce` -> `$e` and the whole structural match stopped firing.
+JSID = rb"[A-Za-z_$][A-Za-z0-9_$]*"
+
 _SHIM_SUFFIXES = {".cmd", ".bat", ".ps1"}
 # Absolute paths ending in .exe inside a launcher shim (`@"C:\...\x.exe" %*`).
 _SHIM_EXE_RE = re.compile(r'([A-Za-z]:[\\/][^"\r\n]*?\.exe)')

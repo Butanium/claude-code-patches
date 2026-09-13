@@ -43,8 +43,10 @@ with a space before the `)`, which is outside any string literal.
 
 `kr` is a minified identifier and is renamed on every build, so the pattern is
 built from a regex anchored on the stable telemetry string
-`"query_thinking_only_response","nudged"` (one occurrence in 2.1.257) and the
-identifier is read out of the match.
+`"query_thinking_only_response","nudged"` (one occurrence in 2.1.257 and in
+2.1.270) and the identifier is read out of the match. So is the telemetry
+emitter in front of it — hardcoding that as `g(` is what broke this patch on
+2.1.270, where the same import minified to `h(`.
 
 Idempotency: the patched guard `if(!1` in front of that same telemetry string is
 unique and doubles as the applied-marker.
@@ -59,13 +61,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries
 
 ANCHOR = b'"query_thinking_only_response","nudged"'
+# The telemetry emitter is itself a minified import (`g(` in 2.1.257, `h(` in
+# 2.1.270), so it is matched as an identifier rather than hardcoded.
 GUARD_RX = re.compile(
-    rb'if\(!([A-Za-z_$][A-Za-z0-9_$]*)\)\{g\("query_thinking_only_response","nudged"\)'
+    rb"if\(!(" + JSID + rb")\)\{" + JSID + rb'\("query_thinking_only_response","nudged"\)'
 )
-PATCHED_RX = re.compile(rb'if\(!1 *\)\{g\("query_thinking_only_response","nudged"\)')
+PATCHED_RX = re.compile(
+    rb"if\(!1 *\)\{" + JSID + rb'\("query_thinking_only_response","nudged"\)'
+)
 
 
 def build_replacement(pattern: bytes, ident: bytes) -> bytes:

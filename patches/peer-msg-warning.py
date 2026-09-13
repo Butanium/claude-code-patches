@@ -55,7 +55,9 @@ grew the final statement to three locals (`hostInjected` picks a different
 reply hint; `lineage==="descendant"` picks a different body for messages from
 agents this session spawned) — the return template is unchanged, and the patch
 still replaces the whole statement with `return e`, so those lanes are dropped
-along with the peer one. If this fails again, grep the binary for
+along with the peer one. 2.1.270 kept that exact structure but minified one of
+the locals to `$e` — which `\\w+` does not match — so every identifier here is
+now matched with `_binpatch.JSID` instead. If this fails again, grep the binary for
 "permission laundering" — the consts sit a few KB ahead of the producer — and
 re-read the function that builds the wrapper (it also contains the
 activity-observation branch, `activityObservation!==void 0`).
@@ -70,7 +72,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries
+
+_I = JSID.decode()  # inline-able in the f-string pattern below
 
 # The peer-message return statement. Structural, not string-literal based:
 # `midTurn` is a stable property name and the back-references pin the two
@@ -82,10 +86,12 @@ from _binpatch import apply_patch, candidate_binaries
 #       o=n.lineage==="descendant"?ue:N;
 #   return`${s}\n${e}\n\n${o}${r}`
 ANCHOR = re.compile(
-    rb'let (\w+)=(\w+)\.midTurn\?(\w+):(\w+),'
-    rb'(\w+)=\2\.hostInjected\?\2\.midTurn\?(\w+):(\w+):\2\.midTurn\?(\w+):"",'
-    rb'(\w+)=\2\.lineage==="descendant"\?(\w+):(\w+);'
-    rb'return`\$\{\1\}\n\$\{(\w+)\}\n\n\$\{\9\}\$\{\5\}`'
+    (
+        rf'let ({_I})=({_I})\.midTurn\?({_I}):({_I}),'
+        rf'({_I})=\2\.hostInjected\?\2\.midTurn\?({_I}):({_I}):\2\.midTurn\?({_I}):"",'
+        rf'({_I})=\2\.lineage==="descendant"\?({_I}):({_I});'
+        rf'return`\$\{{\1\}}\n\$\{{({_I})\}}\n\n\$\{{\9\}}\$\{{\5\}}`'
+    ).encode()
 )
 MSG_GROUP = 12  # the `${e}` inside the template — the message being wrapped
 # Sanity tokens that must appear shortly BEFORE the statement (they live in the
