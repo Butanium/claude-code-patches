@@ -184,16 +184,24 @@ into real files instead:
 
 ```bash
 ./clisrc.py                              # -> ~/.cache/claude-cli-src/<version>/  (1802 files, 41 MB, 0.3 s)
-./clisrc.py --find 'fork gate is on'     # same, then grep it: 0.2 s, file:line
+./clisrc.py --find 'fork gate is on'     # same, then search it (Python regex): 0.2 s, file:line:col
+./clisrc.py --find 'B1t()' -F -B 1500    # literal needle; -B/-A are chars of context (default 120/200)
+./clisrc.py --fn B1t estimateRecacheTokens   # brace-matched definition of each name, any chunk
 ```
 
 Cached per version, so re-running is free and an update just unpacks anew. After
 the first run the normal Read/Grep tools work on the tree, and a hit names its
 chunk — which is also the module you will need for `zz-bytecode-off.py`.
 
-Chasing a minified symbol: find the string, read the identifiers around it, then
-grep `function <name>(){` in the tree for the definition. That is how the fork
-gate below `isInteractive()` was traced.
+Chasing a minified symbol: find the string with `--find`, read the identifiers
+around it, then `--fn <name>` prints the whole definition — `function NAME(`,
+`class NAME`, a `NAME(args){` method, or a `NAME=` binding — wrapped and capped
+(`--max`, `--wrap`). Bun keeps exported names stable across chunks, so a name
+imported into one chunk is found where another defines it; a short name may
+have several unrelated definitions, one per chunk that reuses it, and the
+header names the chunk so you can pick the right one. Context windows and
+definitions are sliced in Python rather than with `grep -o '.\{0,1500\}…'`,
+which backtracks for tens of seconds on a 5 MB line.
 
 ## Caveats
 
