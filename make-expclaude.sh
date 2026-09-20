@@ -20,6 +20,29 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 EXP_PATCHES="$REPO/experimental"
 EXP_DIR="$HOME/.local/share/claude-exp"
 WRAPPER="$HOME/.local/bin/expclaude"
+CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+# CLAUDE_CLI_EXP_PATCHES_EXTRA_DIRS is the experimental twin of
+# CLAUDE_CLI_PATCHES_EXTRA_DIRS (see run_cli_patches.sh): colon-separated extra
+# directories, scanned after experimental/, relative entries resolved against
+# $CLAUDE_CONFIG_DIR. Lets a private checkout carry experimental patches that
+# can't live in this public repo.
+EXP_DIRS=()
+[ -d "$EXP_PATCHES" ] && EXP_DIRS+=("$EXP_PATCHES")
+IFS=':' read -r -a _extra <<< "${CLAUDE_CLI_EXP_PATCHES_EXTRA_DIRS:-}"
+for _d in ${_extra+"${_extra[@]}"}; do
+    [ -n "$_d" ] || continue
+    case "$_d" in
+        /*)    ;;
+        "~/"*) _d="$HOME/${_d#\~/}" ;;
+        *)     _d="$CONFIG_DIR/$_d" ;;
+    esac
+    if [ -d "$_d" ]; then
+        EXP_DIRS+=("$_d")
+    else
+        echo "CLAUDE_CLI_EXP_PATCHES_EXTRA_DIRS entry is not a directory: $_d" >&2
+    fi
+done
 
 live="$(command -v claude || true)"
 [ -n "$live" ] || { echo "no 'claude' on PATH" >&2; exit 1; }
@@ -31,8 +54,12 @@ if [ "${1:-}" = "--list" ]; then
     echo "live binary : $live"
     echo "exp binary  : $dest"
     echo "wrapper     : $WRAPPER"
-    echo "patches     :"
-    for p in "$EXP_PATCHES"/*.py; do [ -f "$p" ] && echo "  - $(basename "$p")"; done
+    echo "patches     : (in apply order)"
+    for d in ${EXP_DIRS+"${EXP_DIRS[@]}"}; do
+        for p in "$d"/*.py; do
+            [ -f "$p" ] && printf '%s\t  - %s  (%s)\n' "$(basename "$p")" "$(basename "$p")" "$d"
+        done
+    done | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -s | cut -f2-
     exit 0
 fi
 
@@ -44,9 +71,19 @@ cp "$live" "$dest"
 chmod +x "$dest"
 echo "copied $live -> $dest"
 
+# Basename order across all dirs — zz-bytecode-off.py has to run last globally
+# or the extra dirs' patches end up as dead text. Same reasoning as
+# run_cli_patches.sh.
+mapfile -t ORDERED < <(
+    for d in ${EXP_DIRS+"${EXP_DIRS[@]}"}; do
+        for p in "$d"/*.py; do
+            [ -f "$p" ] && printf '%s\t%s\n' "$(basename "$p")" "$p"
+        done
+    done | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -s | cut -f2-
+)
+
 failed=0
-for p in "$EXP_PATCHES"/*.py; do
-    [ -f "$p" ] || continue
+for p in ${ORDERED+"${ORDERED[@]}"}; do
     name="$(basename "$p")"
     if CLAUDE_CLI_PATCH_TARGET="$dest" python3 "$p"; then
         echo "  applied $name"
