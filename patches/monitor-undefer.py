@@ -21,43 +21,49 @@ Cost: Monitor's schema text in every request, for every session.
 
 Anchoring: `shouldDefer:!0` appears 46 times in the binary, so the pattern
 carries the neighbouring property names for uniqueness. Those are structural
-(never minified); only the `(e,o)` parameter names would churn across releases,
-and they are deliberately left out of the pattern. To re-derive after an update:
+(never minified); only parameter names would churn across releases, and they
+are deliberately left out of the pattern. The property *after* the flag has
+moved once already — `permissionCheckFailureDecision` through 2.1.257,
+`userFacingName(){return"Monitor"}` from 2.1.271 (`De={name:za,
+enablesCodeExecution:!0,maxResultSizeChars:1e4,shouldDefer:!0,userFacingName()
+{return"Monitor"},...}` in 2.1.278's chunk-sdv516s1.js) — so the regex accepts
+either. To re-derive after an update:
 `scripts/cli-patches/clisrc.py --find 'searchHint:"watch, monitor'` locates the
 Monitor tool literal, and the base object it spreads holds the flag.
 
-Idempotency: the PATCHED string is unique and doubles as the applied-marker.
+Idempotency: the patched shape is unique and doubles as the applied-marker.
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _binpatch import apply_patch, candidate_binaries
 
-PATTERN = b"maxResultSizeChars:1e4,shouldDefer:!0,permissionCheckFailureDecision"
-PATCHED = b"maxResultSizeChars:1e4,shouldDefer:!1,permissionCheckFailureDecision"
-assert len(PATTERN) == len(PATCHED), (len(PATTERN), len(PATCHED))
+_NEXT_PROP = rb'(permissionCheckFailureDecision|userFacingName\(\)\{return"Monitor"\})'
+PATTERN = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!0," + _NEXT_PROP)
+PATCHED = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!1," + _NEXT_PROP)
 
 
 def main() -> int:
     target = None
     for binp in candidate_binaries():
         data = binp.read_bytes()
-        if PATCHED in data:
+        if PATCHED.search(data):
             print(f"monitor-undefer: confirmed already patched ({binp})", file=sys.stderr)
             return 0
-        if PATTERN in data:
+        if PATTERN.search(data):
             target = (binp, data)
             break
 
     if target is None:
         print(
-            f"pattern {PATTERN!r} not found in any candidate binary "
+            f"pattern {PATTERN.pattern!r} not found in any candidate binary "
             f"({[str(p) for p in candidate_binaries()]}) — upstream code changed "
             f"or unknown install layout; re-investigate by unpacking the bundle "
             f"(scripts/cli-patches/clisrc.py --find 'searchHint:\"watch, monitor') "
@@ -68,20 +74,23 @@ def main() -> int:
         return 1
 
     binp, data = target
-    n = data.count(PATTERN)
-    if n != 1:
+    hits = list(PATTERN.finditer(data))
+    if len(hits) != 1:
         print(
-            f"expected exactly 1 occurrence of the pattern, found {n} in {binp} "
+            f"expected exactly 1 occurrence of the pattern, found {len(hits)} in {binp} "
             f"— upstream code changed; refusing to patch",
             file=sys.stderr,
         )
         return 1
 
-    patched = data.replace(PATTERN, PATCHED)
+    m = hits[0]
+    new = m.group(0).replace(b"shouldDefer:!0", b"shouldDefer:!1")
+    assert len(new) == len(m.group(0))
+    patched = data[: m.start()] + new + data[m.end() :]
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:
-        if len(written) != len(data) or PATCHED not in written or PATTERN in written:
+        if len(written) != len(data) or not PATCHED.search(written) or PATTERN.search(written):
             raise RuntimeError("post-write verification failed — live binary untouched")
 
     apply_patch(binp, data, patched, _verify)

@@ -44,6 +44,15 @@ unchanged. `Xt` (turn-abort backgrounding) is a separate flag and is untouched.
 The PowerShell tool has a sibling site (`me=!fe&&await Hs(T)`) that is left
 alone: untestable here.
 
+2.1.271+ adds one more clause in front of the predicate:
+`Vt=!sr&&ve===void 0&&rYo(Ye),` where `ve` is the tool's `shellWallCapMs`
+argument (a caller-supplied wall-clock cap, unset on the ordinary interactive
+path). Upstream turns auto-background off whenever a cap is passed; this patch
+leaves that clause alone and still only forces the predicate call, so a capped
+call behaves exactly as stock. The regex accepts the clause as optional and
+matches both shapes. The predicate itself is unchanged (still the first-word
+blocklist, `["sleep"]`).
+
 Same-length edit (Bun single-file executable, JS blob carries length
 metadata). The predicate call is only ~8 bytes, so the marker is whatever
 prefix of `autobg` fits inside `!0/*...*/` — the patched shape itself
@@ -70,11 +79,13 @@ FLAG = b"canAutoBackground:"
 FLAG_RE = re.compile(re.escape(FLAG) + rb"(" + JSID + rb")[,}]")
 WINDOW = 400  # bytes before FLAG in which the flag's assignment must sit
 
-# `hn=!Wn&&mzs(Ae),` — eligibility = "not forbidden" AND the static predicate.
+# `hn=!Wn&&mzs(Ae),` (≤2.1.270) or `Vt=!sr&&ve===void 0&&rYo(Ye),` (2.1.271+)
+# — eligibility = "not forbidden" [AND no wall cap] AND the static predicate.
 # PowerShell's is `me=!fe&&await Hs(T),`, which this does not match (the
 # `await ` breaks the `&&<call>` adjacency) — deliberately, see the docstring.
-STOCK_TAIL = rb"=!" + JSID + rb"&&(" + JSID + rb"\(" + JSID + rb"\)),"
-PATCHED_TAIL = rb"=!" + JSID + rb"&&(!0(?:/\*[a-z]*\*/| *)),"
+_HEAD = rb"=!" + JSID + rb"&&(?:" + JSID + rb"===void 0&&)?"
+STOCK_TAIL = _HEAD + rb"(" + JSID + rb"\(" + JSID + rb"\)),"
+PATCHED_TAIL = _HEAD + rb"(!0(?:/\*[a-z]*\*/| *)),"
 MARKER_TEXT = b"autobg"
 
 
