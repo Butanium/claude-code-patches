@@ -60,7 +60,7 @@ from _binpatch import apply_patch, candidate_binaries
 # too (`t` through 2.1.250, `n` in 2.1.257) — it is interpolated as `${t}` in the
 # untouched return statement, so it is captured and re-emitted verbatim.
 PATTERN = re.compile(
-    rb"plan_mode_exit:\(e\)=>\{let (\w+)=e\.planExists\?"
+    rb"plan_mode_exit:\(e\)=>\{let ([$\w]+)=e\.planExists\?"
     rb"` The plan file is located at \$\{e\.planFilePath\} if you need to reference it\.`"
     rb':"";'
 )

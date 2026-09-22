@@ -71,14 +71,14 @@ MARKER = b"[mode-nag-off]"
 # The captured group is the return expression: `$l([He({content:y,isMeta:!0})])`
 # on 2.1.258, but every identifier in it is renamed each build, so it is matched
 # loosely and thrown away rather than re-emitted.
-RETURN_EXPR = rb"([$\w]+\(\[[$\w]+\(\{content:\w+,isMeta:!0\}\)\]\))"
+RETURN_EXPR = rb"([$\w]+\(\[[$\w]+\(\{content:[$\w]+,isMeta:!0\}\)\]\))"
 
 EDITS = (
     (
         "entry",
         re.compile(
-            rb"While auto mode is active:\n\n\$\{\w+\}`:\w+\+\w+\+"
-            rb"\(e\.bashFirst\?`\n\n\$\{\w+\}`:\"\"\);return " + RETURN_EXPR + rb"\}"
+            rb"While auto mode is active:\n\n\$\{[$\w]+\}`:[$\w]+\+[$\w]+\+"
+            rb"\(e\.bashFirst\?`\n\n\$\{[$\w]+\}`:\"\"\);return " + RETURN_EXPR + rb"\}"
         ),
         "the 'While bypass permissions mode is active:' / 'While auto mode is active:' reminders",
     ),
@@ -87,7 +87,7 @@ EDITS = (
         re.compile(
             rb"You have exited auto mode\. The user may now want to interact more "
             rb"directly\. You should ask clarifying questions when the approach is "
-            rb"ambiguous rather than making assumptions\.\$\{\w+\}`;return "
+            rb"ambiguous rather than making assumptions\.\$\{[$\w]+\}`;return "
             + RETURN_EXPR
             + rb"\}"
         ),
