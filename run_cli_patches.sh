@@ -103,4 +103,7 @@ for patch in ${ORDERED+"${ORDERED[@]}"}; do
     fi
 done
 
+# stdout findings: a `\w` identifier capture works until the minifier emits a `$` name
+"$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/lint_patches.py" "${DIRS[@]}" 2>&1
+
 exit 0
