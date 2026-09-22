@@ -123,8 +123,8 @@ PATTERN_C = (
     b'from:{kind:"envelope-pinned-id"},timestamp:{kind:"timestamp"},'
     b'paneId:{kind:"pane-id"},backendType:{kind:"backend-type"}}]'
 )
-# the idle_notification entry names the 4000-char body bound (XL in 2.1.257)
-BOUND_RE = re.compile(rb'\["idle_notification",\{[^\]]{0,400}?result:\{kind:"body",bound:(\w+)\}')
+# the idle_notification entry names the 4000-char body bound (XL in 2.1.257, R$ in 2.1.280)
+BOUND_RE = re.compile(rb'\["idle_notification",\{[^\]]{0,400}?result:\{kind:"body",bound:([\w$]+)\}')
 
 
 def build_replacement_c(bound: bytes) -> bytes:
