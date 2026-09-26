@@ -206,8 +206,14 @@ class Sandbox:
         subprocess.run(["tmux", "-L", self.socket, "kill-server"], capture_output=True)
         if self.keep:
             print(f"[kept sandbox] {self.root}")
-        else:
+            return
+        # A session killed with its tmux server flushes its transcript on the way
+        # out, recreating the tree after a first rmtree; retry until it stays gone.
+        for _ in range(10):
             shutil.rmtree(self.root, ignore_errors=True)
+            time.sleep(1)
+            if not self.root.exists():
+                break
 
     # --------------------------------------------------------------- claude -p
 
