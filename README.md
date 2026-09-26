@@ -220,6 +220,47 @@ header names the chunk so you can pick the right one. Context windows and
 definitions are sliced in Python rather than with `grep -o '.\{0,1500\}…'`,
 which backtracks for tens of seconds on a 5 MB line.
 
+## What an update added: `surface_diff.py`
+
+The patches watch for what an update *broke*. Nothing watches for what it
+*added*: a new status-line field, settings key or hook input field ships, no
+patch fails, and it sits unused until someone happens to look (the status
+line's `prompt_cache` block went six releases that way). The changelog misses
+some of these; the binary has all of them. A text diff of two unpacked bundles
+is all minification churn, so this extracts key sets per surface and diffs
+those:
+
+```bash
+./surface_diff.py OLD_BIN NEW_BIN -o report.md --json diff.json   # binaries or clisrc-unpacked dirs
+./surface_diff.py --auto          # live binary vs the previous version, once per pair
+```
+
+Surfaces: environment variables (`process.env`, the CLI's typed env registry,
+`CLAUDE_*`/`ANTHROPIC_*` literals), `settings.json` keys from the schema (with
+their `.describe()` text), hook event names, hook input and JSON-output fields
+per event, the status-line payload, built-in tools and their input-schema keys,
+which tools are deferred behind ToolSearch, slash commands and bundled skills,
+function-hook (Claude Mods) events, and `tengu_*` names split into gates and
+telemetry events. Each key comes with a line of context: its documentation where
+the schema has one, else the minified code around it. Keys whose documentation
+changed are listed too.
+
+Extraction anchors on string literals and key names, never on minified
+identifiers, and follows imports, spreads, helper calls and lazy schemas to
+assemble each key tree. It still depends on code shapes, so every surface has a
+floor (a minimum key count and a few keys that must be present) and reports
+`FAILED` instead of "no changes" when it falls under it. A nested key that
+resolves on only one side while its parent exists on both is listed apart from
+real removals, since that is usually a sub-schema moving behind a reference.
+About 10 s for two versions.
+
+Set `CLAUDE_CLI_SURFACE_DIFF=1` and the runner runs `--auto` after the patches,
+the first session after an update gets the summary in its context, and the full
+report lands in `~/.cache/claude-cli-patch-tests/surfaces-<old>-to-<new>.md`.
+`CLAUDE_CLI_SURFACE_DIFF_NTFY_TOPIC` also posts the summary to ntfy.sh when a
+surface a customized harness reads (settings, hooks, status line, tool deferral,
+function-hook events) grew, or when extraction failed.
+
 ## Caveats
 
 - Unofficial; not affiliated with or endorsed by Anthropic. You're modifying

@@ -115,4 +115,16 @@ if [ "${CLAUDE_CLI_PATCH_TESTS:-}" = "1" ]; then
     "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/tests/after_patch.py" 2>&1
 fi
 
+# Opt-in: after an update, diff what the new binary exposes against the previous
+# version (settings keys, env vars, hook events and payload fields, status-line
+# payload, tools, commands, function-hook events, tengu_* flags) so additions
+# don't sit unused for releases. Runs once per version pair (~10 s, synchronous so
+# the summary lands in this session's context); the report goes next to the
+# behavior-test results. CLAUDE_CLI_SURFACE_DIFF_NTFY_TOPIC, if set, also gets the
+# summary when a surface a customized harness reads grew or extraction failed.
+# stderr carries only unpack chatter; failures are printed to stdout.
+if [ "${CLAUDE_CLI_SURFACE_DIFF:-}" = "1" ]; then
+    "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/surface_diff.py" --auto 2>/dev/null
+fi
+
 exit 0
