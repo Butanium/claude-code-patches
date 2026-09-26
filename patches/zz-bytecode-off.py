@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import _bungraph
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, protect_backup
 
 CHUNK = 1 << 20
 
@@ -62,10 +62,13 @@ def main() -> int:
         print(
             f"zz-bytecode-off: no pristine backup at {orig} — nothing to compare against. "
             f"It is created by the first patch applied to this binary; if patches ARE "
-            f"applied but the backup is gone, reinstall claude and re-run the patches.",
+            f"applied but the backup is gone, `python3 {Path(__file__).resolve().parent.parent / 'restore_orig.py'}` "
+            f"downloads this version's pristine binary, checks it against the release "
+            f"manifest's sha256 and puts it back.",
             file=sys.stderr,
         )
         return 1
+    protect_backup(orig)
     data = binp.read_bytes()
     stock = orig.read_bytes()
     if len(data) != len(stock):

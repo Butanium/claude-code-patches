@@ -178,6 +178,23 @@ def _atomic_swap(tmp: Path, binp: Path) -> None:
         pass
 
 
+def protect_backup(orig: Path) -> None:
+    """Clear the exec bits of a pristine `.orig` backup.
+
+    Claude Code's background housekeeping (every session start) treats every
+    executable regular file in versions/ as an installed version, whatever its
+    name: it spares the running binary, the launcher's target and versions with
+    a live lock, keeps the 2 newest others by mtime and deletes the rest -- a
+    backup copied with the binary's 0755 mode included. It skips non-empty
+    files with no exec bit. No-op on Windows, where files carry no exec bits."""
+    try:
+        mode = orig.stat().st_mode
+        if mode & 0o111:
+            os.chmod(orig, mode & 0o7666)
+    except OSError:
+        pass
+
+
 def apply_patch(
     binp: Path,
     original: bytes,
@@ -210,6 +227,7 @@ def apply_patch(
         orig = binp.with_name(binp.name + ".orig")
         if not orig.exists() or orig.stat().st_size != binp.stat().st_size:
             shutil.copy2(binp, orig)  # capture pristine-for-this-version bytes
+        protect_backup(orig)
         _atomic_swap(tmp, binp)
     except BaseException:
         if tmp.exists():
