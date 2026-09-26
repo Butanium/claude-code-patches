@@ -106,4 +106,13 @@ done
 # stdout findings: a `\w` identifier capture works until the minifier emits a `$` name
 "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/lint_patches.py" "${DIRS[@]}" 2>&1
 
+# Opt-in: prove the patches by behavior, not by anchor. When the live binary is
+# in a state no suite run has seen yet (a patch just applied, or claude updated),
+# start tests/run_tests.py in the background; it posts a pass/fail table to
+# ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC if set. It spends real model calls for
+# several minutes, hence opt-in.
+if [ "${CLAUDE_CLI_PATCH_TESTS:-}" = "1" ]; then
+    "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/tests/after_patch.py" 2>&1
+fi
+
 exit 0

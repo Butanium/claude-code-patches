@@ -74,7 +74,20 @@ backup and re-run the runner. `CLAUDE_CLI_PATCHES_DIR` points the runner at a
 different patch directory altogether.
 
 To restore a pristine binary: `~/.local/share/claude/versions/<ver>.orig` sits
-next to the patched binary, or just reinstall/update Claude Code.
+next to the patched binary, or just reinstall/update Claude Code. The backup
+has no exec bits on purpose. Claude Code's own housekeeping (run at every
+session start) treats every *executable* file in `versions/` as an installed
+version, keeps the two newest it doesn't need by mtime, and deletes the rest.
+A `.orig` copied with the binary's mode was deleted that way. If a backup is
+missing anyway, `python3 restore_orig.py [--binary PATH]` downloads that
+version from the release bucket, checks it against the manifest's sha256, and
+puts it back.
+
+To check that the patches *work*, not just that they applied, see
+[`tests/`](tests/README.md): one behavior test per patch, each run in a fresh
+sandboxed session against an explicit binary path, with an optional stock
+control arm. Set `CLAUDE_CLI_PATCH_TESTS=1` and the runner starts the suite in
+the background whenever the patched binary changes.
 
 ## How it works
 
@@ -147,6 +160,8 @@ The contract, enforced by `run_cli_patches.sh`:
    this — plus binary location and the Windows running-exe swap — for free from
    the shared `_binpatch.py` helper (`candidate_binaries()` + `apply_patch()`);
    a new patch just supplies its anchors and a `verify` callback.
+5. Add `tests/test_<name>.py` that observes the change from a fresh process, and
+   run it with `--control` so it is shown to fail on the stock binary.
 
 The existing patches are heavily commented and meant to be read as worked
 examples — each docstring documents the stock behavior it changes and how the
