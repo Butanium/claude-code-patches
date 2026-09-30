@@ -57,7 +57,11 @@ agents this session spawned) — the return template is unchanged, and the patch
 still replaces the whole statement with `return e`, so those lanes are dropped
 along with the peer one. 2.1.270 kept that exact structure but minified one of
 the locals to `$e` — which `\\w+` does not match — so every identifier here is
-now matched with `_binpatch.JSID` instead. If this fails again, grep the binary for
+now matched with `_binpatch.JSID` instead. 2.1.286 moved the producer and its
+consts into their own chunk and turned the mid-turn reply hint in the second
+local into a nested ternary on `n.sendMessageToolAbsent===!0` (for sessions
+without SendMessage); the anchor gained that ternary, nothing else changed.
+If this fails again, grep the binary for
 "permission laundering" — the consts sit a few KB ahead of the producer — and
 re-read the function that builds the wrapper (it also contains the
 activity-observation branch, `activityObservation!==void 0`).
@@ -79,16 +83,17 @@ _I = JSID.decode()  # inline-able in the f-string pattern below
 # The peer-message return statement. Structural, not string-literal based:
 # `midTurn` is a stable property name and the back-references pin the two
 # ternaries to the same options object and the template to the same locals.
-# Shape as of 2.1.257 (two more lanes than 2.1.250: host-injected messages get
-# their own reply hint, descendant-lineage messages their own body):
-#   let s=n.midTurn?pe:me,
-#       r=n.hostInjected?n.midTurn?Oe:Ce:n.midTurn?G:"",
-#       o=n.lineage==="descendant"?ue:N;
-#   return`${s}\n${e}\n\n${o}${r}`
+# Shape as of 2.1.286 (2.1.257 added two lanes over 2.1.250: host-injected
+# messages get their own reply hint, descendant-lineage messages their own body;
+# 2.1.286 split the mid-turn hint on `sendMessageToolAbsent`):
+#   let o=n.midTurn?u:c,
+#       t=n.hostInjected?n.midTurn?_:I:n.midTurn?n.sendMessageToolAbsent===!0?d:i:"",
+#       r=n.lineage==="descendant"?a:s;
+#   return`${o}\n${e}\n\n${r}${t}`
 ANCHOR = re.compile(
     (
         rf'let ({_I})=({_I})\.midTurn\?({_I}):({_I}),'
-        rf'({_I})=\2\.hostInjected\?\2\.midTurn\?({_I}):({_I}):\2\.midTurn\?({_I}):"",'
+        rf'({_I})=\2\.hostInjected\?\2\.midTurn\?({_I}):({_I}):\2\.midTurn\?\2\.sendMessageToolAbsent===!0\?({_I}):{_I}:"",'
         rf'({_I})=\2\.lineage==="descendant"\?({_I}):({_I});'
         rf'return`\$\{{\1\}}\n\$\{{({_I})\}}\n\n\$\{{\9\}}\$\{{\5\}}`'
     ).encode()
