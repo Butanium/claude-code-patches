@@ -92,7 +92,9 @@ def _main(a: argparse.Namespace) -> int:
     if a.only:
         wanted = {w.strip().removesuffix(".py") for w in a.only.split(",")}
         tests = {k: v for k, v in tests.items() if k in wanted}
-    has_tmux = shutil.which("tmux") is not None
+    # psmux puts a `tmux` on PATH on Windows, but the scenarios never reach the
+    # lead's prompt under it and every pane opens a visible console window.
+    has_tmux = os.name != "nt" and shutil.which("tmux") is not None
 
     arms = [("patched", binary, PATCHED)]
     control = None

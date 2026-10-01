@@ -64,7 +64,8 @@ read one trivial `-p` turn.
 | interrupted-idle-notif | in-process teammate, interrupted with ↓ ↓ Enter Esc Esc | Linux/macOS (tmux) |
 
 The tmux tests are not ported to Windows; `run_tests.py` reports them
-inconclusive where tmux is missing. Credentials are copied from
+inconclusive where tmux is missing and always on Windows (psmux's `tmux`
+fails these scenarios and opens a console window per pane). Credentials are copied from
 `<config>/.credentials.json`. On macOS, where the login usually lives in the
 keychain, set `ANTHROPIC_API_KEY` instead.
 
