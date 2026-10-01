@@ -59,7 +59,8 @@ def main() -> int:
            "--json", str(result), "--release-lock", str(lock)]
     kw: dict = {"stdin": subprocess.DEVNULL, "stdout": open(log, "w"), "stderr": subprocess.STDOUT}
     if os.name == "nt":
-        kw["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        # a hidden console the children inherit; DETACHED_PROCESS made each console child open a window
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True
     subprocess.Popen(cmd, **kw)
