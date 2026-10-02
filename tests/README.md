@@ -59,13 +59,13 @@ read one trivial `-p` turn.
 | task-nag | 14 Bash turns on haiku with `CLAUDE_CODE_TODO_REMINDER_MODE=baseline` produce no task_reminder | all |
 | thinking-only-nag | mock API serves a thinking-only turn; no retry request carries the nag | all |
 | zz-bytecode-off | structural: every module that differs from `.orig` has its bytecode length zeroed | all |
-| idle-notif, peer-msg-warning, shutdown-reason | one lead + one pane teammate | Linux/macOS (tmux) |
-| plan-exit-nag, mode-nag-off | shift+tab from default through plan into bypass mode, then one prompt | Linux/macOS (tmux) |
-| interrupted-idle-notif | in-process teammate, interrupted with ↓ ↓ Enter Esc Esc | Linux/macOS (tmux) |
+| idle-notif, peer-msg-warning, shutdown-reason | one lead + one pane teammate | tmux (psmux >= 3.3.8 on Windows) |
+| plan-exit-nag, mode-nag-off | shift+tab from default through plan into bypass mode, then one prompt | tmux (psmux >= 3.3.8 on Windows) |
+| interrupted-idle-notif | in-process teammate, interrupted with ↓ ↓ Enter Esc Esc | tmux (psmux >= 3.3.8 on Windows) |
 
-The tmux tests are not ported to Windows; `run_tests.py` reports them
-inconclusive where tmux is missing and always on Windows (psmux's `tmux`
-fails these scenarios and opens a console window per pane). Credentials are copied from
+`run_tests.py` reports the tmux tests inconclusive where `tmux` is missing.
+On Windows they run under psmux 3.3.8 or later; see the psmux gotchas below.
+Credentials are copied from
 `<config>/.credentials.json`. On macOS, where the login usually lives in the
 keychain, set `ANTHROPIC_API_KEY` instead.
 
@@ -111,6 +111,26 @@ Gotchas met while building these:
   only produced when the "bash-first" gate is on. The test forces it with
   `CLAUDE_CODE_THRIFTY_SONIC=1`; without that, stock produces nothing to
   suppress.
+- **psmux (Windows)**, as of 3.3.8. Releases before it ignore
+  `respawn-pane`'s command, so pane teammates never start, and resolve bare
+  `%N` targets on whichever server ran last. On 3.3.8:
+  - pane commands run through `pwsh -NoExit -Command`, so the lead's command
+    is pwsh-quoted (`& '<binary>' …; exit`), not POSIX-quoted;
+  - `allow-set-title` is off by default, so the pane title never shows `✳`
+    until the harness turns it on;
+  - a title set with `select-pane -T` is locked against the program's own, so
+    teammate panes keep their name and `pane_state` falls back to the input
+    box on screen (`input_box_idle`);
+  - a split becomes the session's active pane, so the lead is addressed by its
+    pane id, not by session name.
+- **Sandboxes on Windows** go to `%ProgramData%\cli-patch-tests`: under the
+  profile (`%TEMP%`), Claude Code loads `~/.claude/CLAUDE.md` and skills as a
+  parent directory's project config. Claude also keys trusted projects by the
+  forward-slash path there.
+- **An expired OAuth access token** in the copied credentials gets refreshed
+  by the sandbox, which rotates the refresh token under your real login (or
+  logs the sandbox out). `run_tests.py` refuses to start when the token
+  expires within 30 minutes.
 - **TaskStop is not an interrupt.** It kills an in-process teammate, and
   neither binary sends an idle ping then. The "interrupted" ping comes from
   the user pressing Escape in the teammate's view.

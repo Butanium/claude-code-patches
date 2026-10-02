@@ -28,7 +28,8 @@ Claude session would otherwise inherit that session's settings), then
 DISABLE_AUTOUPDATER=1 is set. The updater otherwise runs in any session that
 does not read a settings.json carrying it, and can repoint your install.
 
-Linux/macOS only for the tmux-driven tests. Credentials are read from
+The tmux-driven tests need tmux, or psmux >= 3.3.8 on Windows (see the README's
+psmux gotchas). Credentials are read from
 `<config>/.credentials.json` (Linux); where the login lives in the macOS
 keychain instead, set ANTHROPIC_API_KEY and the tests use that.
 """
@@ -48,6 +49,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 PATCHED, STOCK, INCONCLUSIVE = "patched", "stock", "inconclusive"
+WINDOWS = os.name == "nt"  # tmux there is psmux (>= 3.3.8), which runs pane commands through pwsh
 
 IDLE_MARK = "✳"  # Claude Code's pane title while idle at the prompt; braille spinner while working
 WORKING_FOOTER = re.compile(r"esc to inter")  # footer hint shown only mid-turn (may be cut with …)
@@ -83,10 +85,29 @@ def _user_settings_env_keys() -> set[str]:
         return set()
 
 
+def login_problem(margin_s: float = 1800) -> str | None:
+    """Why the copied OAuth login can't carry a suite run, or None. A sandbox
+    holding an expired access token refreshes it, which rotates the refresh token
+    under your real login (or, when the refresh fails, just logs the sandbox out)."""
+    p = real_config_dir() / ".credentials.json"
+    try:
+        exp = (json.loads(p.read_text(encoding="utf-8")).get("claudeAiOauth") or {}).get("expiresAt")
+    except (OSError, ValueError):
+        return None
+    if exp and exp / 1000 < time.time() + margin_s:
+        return (f"the OAuth access token in {p} expires {time.ctime(exp / 1000)}; start `claude` "
+                "once (or /login) to refresh it, then rerun")
+    return None
+
+
 def tmp_base() -> Path:
     """Where sandboxes (and the stock-control binary copy) go. Override with
     CLI_PATCH_TESTS_TMPDIR, e.g. to keep a 250 MB control copy off a RAM /tmp."""
-    return Path(os.environ.get("CLI_PATCH_TESTS_TMPDIR") or tempfile.gettempdir())
+    if os.environ.get("CLI_PATCH_TESTS_TMPDIR"):
+        return Path(os.environ["CLI_PATCH_TESTS_TMPDIR"])
+    if WINDOWS:  # %TEMP% is under the profile: sessions would load ~/.claude's CLAUDE.md and skills as a parent project's
+        return Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "cli-patch-tests"
+    return Path(tempfile.gettempdir())
 
 
 def binary_version(binary: Path) -> str:
@@ -133,6 +154,7 @@ class Sandbox:
         for d in (self.config, self.cwd, self.bodies):
             d.mkdir()
         self.socket = f"cli-patch-test-{os.getpid()}-{self.root.name[-8:]}"
+        self._session_panes: dict[str, str] = {}
         self._has_creds = False
         self._seed(settings or {}, credentials)
 
@@ -182,9 +204,10 @@ class Sandbox:
         """Pre-accept the workspace-trust dialog for `cwd`."""
         path = self.config / ".claude.json"
         doc = g if g is not None else json.loads(path.read_text(encoding="utf-8"))
-        doc.setdefault("projects", {})[str(cwd)] = {
-            "hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True,
-        }
+        for key in {str(cwd), Path(cwd).as_posix()}:  # Windows builds look up the forward-slash form
+            doc.setdefault("projects", {})[key] = {
+                "hasTrustDialogAccepted": True, "hasCompletedProjectOnboarding": True,
+            }
         if g is None:
             path.write_text(json.dumps(doc), encoding="utf-8")
 
@@ -289,7 +312,10 @@ class Sandbox:
         server and wait for the prompt. Panes a lead spawns for teammates open in
         the same server and inherit the same scrubbed environment."""
         full_env = self.env(**(env or {}))
-        cmd = " ".join(_shq(x) for x in [str(self.binary), *args])
+        if WINDOWS:
+            cmd = "& " + " ".join(_psq(x) for x in [str(self.binary), *args]) + "; exit"
+        else:
+            cmd = " ".join(_shq(x) for x in [str(self.binary), *args])
         eflags: list[str] = []
         for k in ("CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER", "OTEL_LOG_RAW_API_BODIES", *(env or {})):
             eflags += ["-e", f"{k}={full_env[k]}"]
@@ -298,13 +324,19 @@ class Sandbox:
                            capture_output=True, text=True, env=full_env)
         if r.returncode:
             raise RuntimeError(f"tmux new-session failed: {r.stderr}")
+        if WINDOWS:  # off by default in psmux: pane_title would never show the idle glyph
+            self.tmux("set-option", "-g", "allow-set-title", "on")
+        # Address the session's first pane by id: psmux makes a teammate's split the
+        # active pane, which is what a bare session target resolves to.
+        if pid := self.tmux("display-message", "-p", "-t", session, "#{pane_id}").stdout.strip():
+            self._session_panes[session] = pid
         t0 = time.time()
         while time.time() - t0 < timeout:
             txt = re.sub(r"\s", "", self.capture(session))
             if "Itrustthisfolder" in txt:
-                self.tmux("send-keys", "-t", session, "Down", "Enter")
+                self.keys("Down", "Enter", target=session)
             elif "Yes,Iaccept" in txt:
-                self.tmux("send-keys", "-t", session, "Down", "Enter")
+                self.keys("Down", "Enter", target=session)
             # The idle title shows before the input box accepts keys; keystrokes
             # sent in that window vanish, so give the TUI a settling margin.
             elif time.time() - t0 > 12 and self.pane_state(session) == "idle":
@@ -312,13 +344,17 @@ class Sandbox:
             time.sleep(0.5)
         raise RuntimeError(f"{session}: never reached the prompt:\n{self.capture(session)[-1500:]}")
 
+    def _pane(self, target: str) -> str:
+        return self._session_panes.get(target, target)
+
     def capture(self, target: str = "lead") -> str:
-        return self.tmux("capture-pane", "-p", "-t", target).stdout
+        return self.tmux("capture-pane", "-p", "-t", self._pane(target)).stdout
 
     def pane_state(self, target: str = "lead") -> str:
         """idle | working | gone | unknown. The footer's "esc to interrupt" is the
         working signal; the pane title alone is not (in a detached tmux server the
         title can keep its idle glyph through a whole turn)."""
+        target = self._pane(target)
         # display-message on a closed pane id exits 0 with empty output, so check existence first
         if target.startswith("%") and target not in {p["id"] for p in self.panes()}:
             return "gone"
@@ -326,9 +362,12 @@ class Sandbox:
         if r.returncode:
             return "gone"
         title = r.stdout.strip()
-        if WORKING_FOOTER.search(self.capture(target)[-1200:]):
+        cap = self.capture(target)
+        if WORKING_FOOTER.search(cap[-1200:]):
             return "working"
-        if title.startswith(IDLE_MARK):
+        # psmux locks a title set with select-pane -T, as Claude Code names teammate
+        # panes, so the program's idle glyph never shows there; read the screen instead
+        if title.startswith(IDLE_MARK) or (WINDOWS and input_box_idle(cap)):
             return "idle"
         if title and 0x2800 <= ord(title[0]) <= 0x28FF:
             return "working"
@@ -347,6 +386,7 @@ class Sandbox:
         """Type `text` and submit it, then confirm the turn started (the pane
         leaves idle). Retries: keys typed while the TUI is busy redrawing can be
         dropped, or the Enter can land before the paste is taken in."""
+        target = self._pane(target)
         text = " ".join(text.split())
         probe = re.sub(r"\s", "", text[:40])
         for _ in range(tries):
@@ -359,7 +399,7 @@ class Sandbox:
         raise RuntimeError(f"{target}: prompt was not taken:\n{self.capture(target)[-1500:]}")
 
     def keys(self, *keys: str, target: str = "lead") -> None:
-        self.tmux("send-keys", "-t", target, *keys)
+        self.tmux("send-keys", "-t", self._pane(target), *keys)
 
     def wait_idle(self, target: str = "lead", timeout: float = 300, min_s: float = 6) -> str:
         """Block until `target` is idle at its prompt (ignoring the first `min_s`
@@ -371,6 +411,13 @@ class Sandbox:
                 return st
             time.sleep(1)
         return "timeout"
+
+
+def input_box_idle(capture: str) -> bool:
+    """The prompt line `❯` framed by the input box's two rules."""
+    lines = [l.strip() for l in capture.splitlines() if l.strip()]
+    return any(lines[i].startswith("❯") and lines[i - 1].startswith("─") and lines[i + 1].startswith("─")
+               for i in range(1, len(lines) - 1))
 
 
 def wait_for(pred: Callable[[], object], timeout: float, step: float = 2) -> object:
@@ -385,6 +432,10 @@ def wait_for(pred: Callable[[], object], timeout: float, step: float = 2) -> obj
 
 def _shq(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def _psq(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
 
 
 # ----------------------------------------------------------------------------- mock Messages API
