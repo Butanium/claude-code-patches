@@ -41,6 +41,18 @@ cannot override the result (flipping only the default would leave that door
 open). The flag string survives in the binary for whoever re-investigates,
 and the `!1&&` prefix in front of it is the idempotency marker.
 
+2.1.289 put a second condition in front of the flag:
+
+    return Nt()||eo("tengu_breezy_crescent",!0)}       stock
+    return Nt()||0&&eo("tengu_breezy_crescent")}       patched
+
+`Nt()` is `launchOptions.diskless()`, a kind of cloud session that writes no
+task output to disk; upstream caps Monitor there regardless of the flag. The
+patch keeps that disjunct and only removes the flag. `!1&&` would not fit
+(one byte over), so the shape uses `0&&`: the gate returns `0` instead of
+`false` outside diskless sessions. All consumers are truthiness tests or
+`bounded===!0`, which treat `0` like `false`.
+
 To re-derive after an update: `scripts/cli-patches/clisrc.py --find
 'tengu_breezy_crescent'` shows the gate function; check that its callers still
 select between two schemas (the legacy one carries `persistent:` in its
@@ -59,15 +71,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _binpatch import JSID, apply_patch, candidate_binaries
 
 FLAG = b'"tengu_breezy_crescent"'
-PATTERN = re.compile(rb"return (" + JSID + rb")\(" + re.escape(FLAG) + rb",!0\)\}")
-PATCHED = re.compile(rb"return!1&&(" + JSID + rb")\(" + re.escape(FLAG) + rb"\)\}")
+# group 1: the optional `Nt()||` diskless disjunct (2.1.289+); group 2: the flag getter.
+PATTERN = re.compile(
+    rb"return ((?:" + JSID + rb"\(\)\|\|)?)(" + JSID + rb")\(" + re.escape(FLAG) + rb",!0\)\}"
+)
+PATCHED = re.compile(
+    rb"return(?:!1&&| " + JSID + rb"\(\)\|\|0&&)" + JSID + rb"\(" + re.escape(FLAG) + rb"\)\}"
+)
 # The legacy schema's `persistent` field description. Present with no flag at
 # all = a binary from before 2.1.271, where there is nothing to restore.
 LEGACY_TEXT = b"Run for the lifetime of the session (no timeout)"
 
 
 def replacement(m: re.Match[bytes]) -> bytes:
-    rep = b"return!1&&" + m.group(1) + b"(" + FLAG + b")}"
+    prefix, getter = m.group(1), m.group(2)
+    if prefix:
+        rep = b"return " + prefix + b"0&&" + getter + b"(" + FLAG + b")}"
+    else:
+        rep = b"return!1&&" + getter + b"(" + FLAG + b")}"
     assert len(rep) == len(m.group(0)), (rep, m.group(0))
     return rep
 
