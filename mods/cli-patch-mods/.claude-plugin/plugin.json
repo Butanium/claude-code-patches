@@ -1,0 +1,6 @@
+{
+  "name": "cli-patch-mods",
+  "version": "0.1.0",
+  "description": "Function-hook alternative to some claude-code-patches byte patches: undefers Monitor/SendMessage/TaskStop, keeps mode/plan/task nags out of requests, unwraps teammate messages, drops idle pings",
+  "author": { "name": "claude-code-patches" }
+}

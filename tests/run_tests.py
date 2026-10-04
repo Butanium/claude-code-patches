@@ -5,10 +5,13 @@
     python3 tests/run_tests.py --binary <path> --control          # + stock arm from <path>.orig
     python3 tests/run_tests.py --binary <path> --only shutdown-reason,idle-notif
     python3 tests/run_tests.py --binary <path> --ntfy <topic>     # also post the table to ntfy.sh
+    python3 tests/run_tests.py --binary <path> --control --mod mods/cli-patch-mods
 
 A test passes when it observes the patched behavior on --binary and, with
 --control, the stock behavior on an executable copy of <binary>.orig (a test
-that also "passes" on stock proves nothing). Tests live next to this file as
+that also "passes" on stock proves nothing). With --mod DIR, the tests that
+DIR/covers.json lists also run on that stock copy with the plugin at DIR
+loaded, and must observe the patched behavior there. Tests live next to this file as
 test_<patch>.py; extra test dirs come from --tests-dir and from the `tests/`
 sibling of every CLAUDE_CLI_PATCHES_EXTRA_DIRS entry (private patch repos).
 
@@ -33,8 +36,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from _harness import (INCONCLUSIVE, PATCHED, STOCK, Verdict, binary_version, drop_stock_control,  # noqa: E402
-                      login_problem, stock_control)
+from _harness import (INCONCLUSIVE, PATCHED, STOCK, Verdict, binary_version, drop_test_binary,  # noqa: E402
+                      login_problem, mod_arm, stock_control)
 
 
 def extra_test_dirs() -> list[Path]:
@@ -72,6 +75,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("--binary", required=True, type=Path)
     ap.add_argument("--control", action="store_true", help="also run each test on <binary>.orig, expecting stock")
+    ap.add_argument("--mod", type=Path,
+                    help="plugin folder: also run the tests its covers.json lists on <binary>.orig with it loaded, "
+                         "expecting patched")
     ap.add_argument("--only", default="", help="comma-separated patch names")
     ap.add_argument("--tests-dir", action="append", type=Path, default=[])
     ap.add_argument("--jobs", type=int, default=4)
@@ -99,15 +105,23 @@ def _main(a: argparse.Namespace) -> int:
         return 2
 
     arms = [("patched", binary, PATCHED)]
-    control = None
-    if a.control:
+    control = launcher = None
+    covered: set[str] = set()
+    if a.control or a.mod:
         control = stock_control(binary)
+    if a.control:
         arms.append(("stock", control, STOCK))
+    if a.mod:
+        mod_dir = a.mod.expanduser().resolve()
+        covered = set(json.loads((mod_dir / "covers.json").read_text(encoding="utf-8")))
+        launcher = mod_arm(control, mod_dir, binary_version(binary))
+        arms.append(("mod", launcher, PATCHED))
 
     jobs = []
     for name, mod in tests.items():
         for arm, b, expect in arms:
-            jobs.append((name, mod, arm, b, expect))
+            if arm != "mod" or name in covered:
+                jobs.append((name, mod, arm, b, expect))
 
     t0 = time.time()
     results: dict[tuple[str, str], tuple[Verdict, str]] = {}
@@ -124,18 +138,21 @@ def _main(a: argparse.Namespace) -> int:
                 results[(job[0], job[2])] = (v, expect)
                 print(f"  {job[0]:24} {job[2]:7} {v.status:12} {v.detail}", flush=True)
     finally:
-        if control is not None:
-            drop_stock_control(control)
+        for f in (control, launcher):
+            if f is not None:
+                drop_test_binary(f)
 
     rows, passed = [], 0
     for name in tests:
         bad = [(arm, results[(name, arm)][0]) for arm, _, expect in arms
-               if results[(name, arm)][0].status != expect]
+               if (name, arm) in results and results[(name, arm)][0].status != expect]
         passed += not bad
         why = "; ".join(f"{arm} arm observed {v.status}: {v.detail}" for arm, v in bad)
         rows.append(f"PASS  {name}" if not bad else f"FAIL  {name} — {why}")
     ok_all = passed == len(tests)
-    arms_txt = "patched + stock control" if len(arms) > 1 else "patched only"
+    arms_txt = " + ".join({"patched": "patched", "stock": "stock control",
+                           "mod": f"mod on stock ({len(covered & set(tests))} tests)"}[arm]
+                          for arm, _, _ in arms) if len(arms) > 1 else "patched only"
     table = "\n".join([f"claude {binary_version(binary)}: {passed}/{len(tests)} patch tests pass "
                        f"({arms_txt}, {int(time.time() - t0)}s)", *sorted(rows, key=lambda r: r[:4] == "PASS")])
     print("\n" + table)

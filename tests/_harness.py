@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -134,8 +135,29 @@ def stock_control(binary: Path) -> Path:
     return dest
 
 
-def drop_stock_control(dest: Path) -> None:
-    """Delete a stock_control() copy: it is a full binary, and /tmp may be RAM-backed."""
+MOD_ARM_PREFIX = "cli-patch-test-mod-"
+
+
+def mod_arm(control: Path, mod_dir: Path, version: str) -> Path:
+    """A launcher that runs the stock_control() copy with the plugin at `mod_dir` loaded.
+    It sets CLAUDE_CODE_PLUGIN_DIRS itself because the sandbox scrubs CLAUDE* variables."""
+    if WINDOWS:
+        raise NotImplementedError("the mod arm's launcher is a bash script; not available on Windows")
+    dest = tmp_base() / f"{MOD_ARM_PREFIX}{version}-pid{os.getpid()}"
+    dest.write_text(f'#!/bin/bash\nexport CLAUDE_CODE_PLUGIN_DIRS={shlex.quote(str(mod_dir))}\n'
+                    f'exec {shlex.quote(str(control))} "$@"\n')
+    os.chmod(dest, 0o755)
+    return dest
+
+
+def is_mod_arm(binary: Path) -> bool:
+    """For the few tests whose observable differs between a byte patch and its mod."""
+    return Path(binary).name.startswith(MOD_ARM_PREFIX)
+
+
+def drop_test_binary(dest: Path) -> None:
+    """Delete a stock_control() copy or a mod_arm() launcher: a full binary copy is large,
+    and /tmp may be RAM-backed."""
     for f in (dest, dest.with_name(dest.name + ".orig")):
         f.unlink(missing_ok=True)
 
@@ -144,7 +166,7 @@ def _sweep_dead_stock_controls() -> None:
     """Remove copies left by runs that were killed before their cleanup ran."""
     if WINDOWS:  # os.kill(pid, 0) is TerminateProcess there, not a liveness probe
         return
-    for f in tmp_base().glob("cli-patch-test-stock-*-pid*"):
+    for f in tmp_base().glob("cli-patch-test-*-pid*"):
         m = re.search(r"-pid(\d+)(?:\.orig)?$", f.name)
         if not m:
             continue
@@ -679,5 +701,5 @@ def main(run: Callable[[Path], Verdict], doc: str | None = None) -> int:
             print(f"{'PASS' if good else 'FAIL'}  {binary}  expected={expect} observed={v.status}  {v.detail}")
     finally:
         if a.control:
-            drop_stock_control(arms[1][0])
+            drop_test_binary(arms[1][0])
     return 0 if ok else 1

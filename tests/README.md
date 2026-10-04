@@ -16,6 +16,14 @@ python3 tests/test_task_nag.py --binary <path> --control      # a single test
 `--control` adds a second arm: an executable copy of `<binary>.orig`, where
 every test must observe the **stock** behavior. A test that also passes on
 stock proves nothing, so run with `--control` whenever a test is new or changed.
+
+`--mod mods/cli-patch-mods` adds a third arm for the plugin alternative
+([`mods/`](../mods/README.md)): the tests its `covers.json` lists run on the
+stock copy with that plugin loaded, through a launcher script that sets
+`CLAUDE_CODE_PLUGIN_DIRS`, and must observe the patched behavior. Linux/macOS
+only. A test whose observable differs between the patch and the mod checks
+`_harness.is_mod_arm(binary)`. Only `task-nag` does: the mod keeps the reminder
+out of requests but not out of the transcript.
 The whole suite takes about two minutes with both arms, using the account the
 CLI is logged in with.
 

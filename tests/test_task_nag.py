@@ -6,7 +6,8 @@ don't, so the reminder can't fire there at all) makes 14 sequential Bash calls
 without touching task tools, with CLAUDE_CODE_TODO_REMINDER_MODE=baseline so the
 env switch that also silences the reminder is not what we observe.
   patched: no task_reminder / todo_reminder attachment in the transcript
-  stock:   at least one (the stock threshold is 10 turns)
+           (mod arm: attachments may be recorded, but none reaches a request)
+  stock:   at least one, sent to the model (the stock threshold is 10 turns)
 Cross-platform.
 """
 
@@ -16,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _harness import INCONCLUSIVE, PATCHED, STOCK, Verdict, main, tool_uses
+from _harness import INCONCLUSIVE, PATCHED, STOCK, Verdict, is_mod_arm, main, tool_uses, walk_strings
 from _scenarios import print_session
 
 N = 14
@@ -32,8 +33,13 @@ def run(binary: Path) -> Verdict:
                         settings={"env": {"CLAUDE_CODE_TODO_REMINDER_MODE": "baseline"}})
     calls = len(tool_uses(rec.rows, "Bash"))
     reminders = [r for r in rec.rows if (r.get("attachment") or {}).get("type") in ("task_reminder", "todo_reminder")]
+    sent = {s for r in rec.requests for s in walk_strings(r.get("messages")) if "been used recently" in s}
+    if sent:
+        return Verdict(STOCK, f"{len(reminders)} reminder(s) over {calls} Bash turns, sent to the model")
     if reminders:
-        return Verdict(STOCK, f"{len(reminders)} reminder(s) over {calls} Bash turns")
+        # The mod keeps the reminder out of requests; only the patch keeps it out of the transcript.
+        return Verdict(PATCHED if is_mod_arm(binary) else STOCK,
+                       f"{len(reminders)} reminder(s) recorded in the transcript, none sent to the model")
     if calls < 11:
         return Verdict(INCONCLUSIVE, f"only {calls} Bash turns; the stock threshold is 10")
     return Verdict(PATCHED, f"no reminder over {calls} Bash turns")
