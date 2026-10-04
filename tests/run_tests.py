@@ -33,7 +33,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from _harness import INCONCLUSIVE, PATCHED, STOCK, Verdict, binary_version, login_problem, stock_control  # noqa: E402
+from _harness import (INCONCLUSIVE, PATCHED, STOCK, Verdict, binary_version, drop_stock_control,  # noqa: E402
+                      login_problem, stock_control)
 
 
 def extra_test_dirs() -> list[Path]:
@@ -123,9 +124,8 @@ def _main(a: argparse.Namespace) -> int:
                 results[(job[0], job[2])] = (v, expect)
                 print(f"  {job[0]:24} {job[2]:7} {v.status:12} {v.detail}", flush=True)
     finally:
-        if control is not None:  # a full binary copy; don't leave it in a RAM-backed /tmp
-            for f in (control, control.with_name(control.name + ".orig")):
-                f.unlink(missing_ok=True)
+        if control is not None:
+            drop_stock_control(control)
 
     rows, passed = [], 0
     for name in tests:

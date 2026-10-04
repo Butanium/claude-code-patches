@@ -122,16 +122,38 @@ def stock_control(binary: Path) -> Path:
     orig = binary.with_name(binary.name + ".orig")
     if not orig.is_file():
         raise FileNotFoundError(f"no pristine backup at {orig}")
-    dest = tmp_base() / f"cli-patch-test-stock-{binary_version(binary)}"
-    if not dest.exists() or dest.stat().st_size != orig.stat().st_size:
-        tmp = dest.with_name(dest.name + f".tmp{os.getpid()}")
-        shutil.copyfile(orig, tmp)
-        os.chmod(tmp, 0o755)
-        os.replace(tmp, dest)
+    _sweep_dead_stock_controls()
+    # Per-process name: suites for the same version overlap (after_patch.py starts one per
+    # patched binary state), and each run deletes its copy when it ends.
+    dest = tmp_base() / f"cli-patch-test-stock-{binary_version(binary)}-pid{os.getpid()}"
+    shutil.copyfile(orig, dest)
+    os.chmod(dest, 0o755)
     side = dest.with_name(dest.name + ".orig")  # tests that diff against the pristine bytes find them
-    if not side.exists():
-        side.symlink_to(orig)
+    side.unlink(missing_ok=True)
+    side.symlink_to(orig)
     return dest
+
+
+def drop_stock_control(dest: Path) -> None:
+    """Delete a stock_control() copy: it is a full binary, and /tmp may be RAM-backed."""
+    for f in (dest, dest.with_name(dest.name + ".orig")):
+        f.unlink(missing_ok=True)
+
+
+def _sweep_dead_stock_controls() -> None:
+    """Remove copies left by runs that were killed before their cleanup ran."""
+    if WINDOWS:  # os.kill(pid, 0) is TerminateProcess there, not a liveness probe
+        return
+    for f in tmp_base().glob("cli-patch-test-stock-*-pid*"):
+        m = re.search(r"-pid(\d+)(?:\.orig)?$", f.name)
+        if not m:
+            continue
+        try:
+            os.kill(int(m.group(1)), 0)
+        except ProcessLookupError:
+            f.unlink(missing_ok=True)
+        except OSError:  # alive, owned by another user
+            pass
 
 
 # ----------------------------------------------------------------------------- sandbox
@@ -649,9 +671,13 @@ def main(run: Callable[[Path], Verdict], doc: str | None = None) -> int:
     if a.control:
         arms.append((stock_control(Path(a.binary)), STOCK))
     ok = True
-    for binary, expect in arms:
-        v = run(binary)
-        good = v.status == expect
-        ok &= good
-        print(f"{'PASS' if good else 'FAIL'}  {binary}  expected={expect} observed={v.status}  {v.detail}")
+    try:
+        for binary, expect in arms:
+            v = run(binary)
+            good = v.status == expect
+            ok &= good
+            print(f"{'PASS' if good else 'FAIL'}  {binary}  expected={expect} observed={v.status}  {v.detail}")
+    finally:
+        if a.control:
+            drop_stock_control(arms[1][0])
     return 0 if ok else 1
