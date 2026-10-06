@@ -285,9 +285,13 @@ class Sandbox:
     # --------------------------------------------------------------- claude -p
 
     def run_print(self, prompt: str, *args: str, model: str = "haiku", timeout: float = 300,
-                  env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-        cmd = [str(self.binary), "-p", prompt, "--model", model,
-               "--output-format", "stream-json", "--verbose", *args]
+                  env: dict[str, str] | None = None,
+                  output_format: str = "stream-json") -> subprocess.CompletedProcess:
+        """One `claude -p` turn. `--verbose` is added for stream-json, which the CLI
+        requires it for in print mode, and for no other format: the thinking-display
+        resolver treats `json --verbose` differently from `json`."""
+        cmd = [str(self.binary), "-p", prompt, "--model", model, "--output-format", output_format,
+               *(["--verbose"] if output_format == "stream-json" else []), *args]
         return subprocess.run(cmd, cwd=self.cwd, env=self.env(**(env or {})), capture_output=True,
                               text=True, timeout=timeout, stdin=subprocess.DEVNULL)
 

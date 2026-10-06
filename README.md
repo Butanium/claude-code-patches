@@ -31,6 +31,7 @@ July 2026.
 | [`taskstop-undefer.py`](patches/taskstop-undefer.py) | Same *load*, for `TaskStop`. Stock, cancelling a background task costs a `ToolSearch select:TaskStop` round-trip first — and the moment you reach for it is the moment something is already going wrong, so the deferral sits between noticing a runaway job and stopping it. Cheapest of the three (the schema is a task id and a reason). Its deferred sibling `TaskOutput` is deliberately left alone: the binary's own description calls it deprecated. |
 | [`teammate-cwd.py`](patches/teammate-cwd.py) | Lets a named `Agent` call take `cwd` and gives it a real pane (tmux) teammate there. Stock, the full input schema defines `cwd` but the model-facing one omits it, and any named call carrying `isolation` or `cwd` is quietly turned into an in-process subagent, even though the pane spawner already launches teammates as `cd <cwd> && claude …`. Patched, `cwd` is in the schema and is passed to the spawner; the in-process spawner, which ignores `cwd`, refuses it with an error instead of running the teammate in the wrong directory. Pair it with a PreToolUse hook that turns `isolation: "worktree"` into `git worktree add` + `cwd` to get one teammate per worktree. |
 | [`monitor-persistent.py`](patches/monitor-persistent.py) | Gives `Monitor` its `persistent: true` option back. 2.1.271 put every watch on a deadline (30 minutes, 10 in `-p`) behind a feature flag and dropped `persistent` from the input schema — a call that still passes it is accepted and silently capped, and the expiry notice names no command, so a watch meant to outlive a compaction is simply gone. Both code paths are still in the bundle and one function picks between them; patched, it always picks the legacy one: strict schema, no-timer runtime, tool description and system-prompt text included. Reports "not needed" on a binary older than 2.1.271. |
+| [`thinking-summaries-print.py`](patches/thinking-summaries-print.py) | Makes the `showThinkingSummaries: true` setting apply to non-interactive sessions. Stock consults it only for an interactive terminal: `claude -p` with text or json output sends `thinking.display: "omitted"`, and the `--input-format stream-json` shape the Agent SDK and the Claude Desktop app launch the CLI with sends no display at all — either way the transcript's thinking blocks come back empty (verified on an adaptive-thinking model: a 0-char block stock, a summary patched). `--thinking-display summarized` already fixes a launch you control; this covers the ones you don't. With the setting off or unset, nothing changes. |
 | [`zz-bytecode-off.py`](patches/zz-bytecode-off.py) | Not a behavior change — the patch that makes the others *work*. Since Bun 1.4.1 (claude 2.1.250+) each module ships pre-compiled bytecode that runs regardless of the JS text, so text edits are inert. This runs last, diffs the binary against its `.orig` backup, and disables the bytecode of every module whose text was patched, so Bun compiles those from source. See *How it works*. |
 
 The first thing a teammate said with `shutdown-reason.py` active:
@@ -72,6 +73,15 @@ stops re-applying — a patch already baked into the current binary stays until
 the next Claude Code update ships a fresh one, or you restore the `.orig`
 backup and re-run the runner. `CLAUDE_CLI_PATCHES_DIR` points the runner at a
 different patch directory altogether.
+
+The runner patches the binary `which claude` resolves to. A CLI that lives
+elsewhere — the Claude Desktop app bundles its own at
+`~/.claude/remote/ccd-cli/<version>` — is named in
+`CLAUDE_CLI_PATCH_EXTRA_TARGETS` (colon-separated; a file, or a directory whose
+newest non-backup file is taken; relative entries resolve against
+`~/.claude`). Each extra target gets the full patch pass and its own `.orig`
+backup next to it. A single one-off target instead: `CLAUDE_CLI_PATCH_TARGET=<file>
+bash run_cli_patches.sh`.
 
 To restore a pristine binary: `~/.local/share/claude/versions/<ver>.orig` sits
 next to the patched binary, or just reinstall/update Claude Code. The backup

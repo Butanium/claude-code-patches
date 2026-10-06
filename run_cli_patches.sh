@@ -27,6 +27,14 @@
 # against $CLAUDE_CONFIG_DIR (default ~/.claude) so the same settings.json
 # works on every machine; absolute and ~/-prefixed entries are taken as given.
 # Directories are scanned in order, built-in first.
+#
+# CLAUDE_CLI_PATCH_EXTRA_TARGETS names further binaries to patch after the
+# installed one (colon-separated): a file, or a directory whose newest
+# non-backup file is taken — the layout of the Claude Desktop app's bundled CLI
+# (`~/.claude/remote/ccd-cli/<version>`), which `which claude` never resolves
+# to. Relative entries resolve against $CLAUDE_CONFIG_DIR like EXTRA_DIRS. Each
+# target gets the whole patch pass through CLAUDE_CLI_PATCH_TARGET, including
+# zz-bytecode-off, and its own `.orig` backup next to it.
 set -u
 
 DIR="${CLAUDE_CLI_PATCHES_DIR:-$(cd "$(dirname "$0")" && pwd)/patches}"
@@ -87,20 +95,69 @@ mapfile -t ORDERED < <(
     done | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -s | cut -f2-
 )
 
-for patch in ${ORDERED+"${ORDERED[@]}"}; do
-    name="$(basename "$patch")"
-    case "$name" in __pycache__|*.pyc|.*) continue;; esac
-    case "$SKIP" in *",$name,"*) echo "cli-patch $name: skipped (CLAUDE_CLI_PATCHES_SKIP)" >&2; continue;; esac
-
-    output="$(run_patch "$patch")"
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-        echo "cli-patch $name: $output" >&2
-    else
-        echo "CLI patch '$name' FAILED (exit $rc) — its behavior change is NOT active for the current claude binary:"
-        echo "$output"
-        echo "Script: $patch"
+# apply_all [target]: one pass over every patch. With a target, the patches aim
+# at that file (CLAUDE_CLI_PATCH_TARGET) and messages name it; without, they
+# find the installed binary themselves, or honor a CLAUDE_CLI_PATCH_TARGET
+# already in the environment (one-off aiming at a copy).
+apply_all() {
+    local target="${1:-}" label="" patch name output rc
+    if [ -n "$target" ]; then
+        export CLAUDE_CLI_PATCH_TARGET="$target"
+        label=" [$(basename "$target")]"
     fi
+    for patch in ${ORDERED+"${ORDERED[@]}"}; do
+        name="$(basename "$patch")"
+        case "$name" in __pycache__|*.pyc|.*) continue;; esac
+        case "$SKIP" in *",$name,"*) echo "cli-patch $name$label: skipped (CLAUDE_CLI_PATCHES_SKIP)" >&2; continue;; esac
+
+        output="$(run_patch "$patch")"
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+            echo "cli-patch $name$label: $output" >&2
+        else
+            echo "CLI patch '$name' FAILED (exit $rc) — its behavior change is NOT active for the claude binary${label:-" currently installed"}:"
+            echo "$output"
+            echo "Script: $patch"
+        fi
+    done
+}
+
+apply_all
+
+# newest_binary DIR: the newest regular file in DIR that is not a backup or a
+# patch temp — the same rule _binpatch.candidate_binaries() uses for versions/.
+newest_binary() {
+    local f best=""
+    for f in "$1"/*; do
+        [ -f "$f" ] || continue
+        case "$f" in *.orig|*.patch.*|*.patchold.*) continue;; esac
+        if [ -z "$best" ] || [ "$f" -nt "$best" ]; then best="$f"; fi
+    done
+    [ -n "$best" ] && printf '%s\n' "$best"
+}
+
+IFS=':' read -r -a _targets <<< "${CLAUDE_CLI_PATCH_EXTRA_TARGETS:-}"
+for _t in ${_targets+"${_targets[@]}"}; do
+    [ -n "$_t" ] || continue
+    case "$_t" in
+        /*)    ;;
+        "~/"*) _t="$HOME/${_t#\~/}" ;;
+        *)     _t="$CONFIG_DIR/$_t" ;;
+    esac
+    if [ -d "$_t" ]; then
+        _bin="$(newest_binary "$_t")"
+        if [ -z "$_bin" ]; then
+            echo "CLAUDE_CLI_PATCH_EXTRA_TARGETS entry has no binary in it: $_t"
+            continue
+        fi
+    elif [ -f "$_t" ]; then
+        _bin="$_t"
+    else
+        # stdout: a target that is gone means its patches are silently absent.
+        echo "CLAUDE_CLI_PATCH_EXTRA_TARGETS entry is neither a file nor a directory: $_t"
+        continue
+    fi
+    ( apply_all "$_bin" )
 done
 
 # stdout findings: a `\w` identifier capture works until the minifier emits a `$` name
