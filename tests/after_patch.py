@@ -5,8 +5,11 @@ Called by run_cli_patches.sh after the patches ran, when CLAUDE_CLI_PATCH_TESTS=
 The binary is replaced whenever a patch applies (or claude updates), so its
 path + size + mtime name one patched state; each state is tested once. The
 suite runs detached (it takes minutes and starts real sessions), with a stock
-control arm, and posts its table to ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC when
-that is set. Results and the log land in the state dir:
+control arm. It posts its table to ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC (when
+set) only for the first tested state of a claude version: a new state of an
+already-tested version means a patch was being developed, and that session runs
+the suite itself. A binary aimed at by $CLAUDE_CLI_PATCH_TARGET (a dev copy) is
+never auto-tested. Results and the log land in the state dir:
 
     ${XDG_CACHE_HOME:-~/.cache}/claude-cli-patch-tests/<version>-<size>-<mtime>.{json,log}
 
@@ -34,6 +37,8 @@ def state_dir() -> Path:
 
 
 def main() -> int:
+    if os.environ.get("CLAUDE_CLI_PATCH_TARGET"):
+        return 0
     cands = candidate_binaries()
     if not cands:
         return 0
@@ -47,6 +52,7 @@ def main() -> int:
     result, log, lock = d / f"{key}.json", d / f"{key}.log", d / f"{key}.lock"
     if result.exists():
         return 0
+    new_version = not any(d.glob(f"{binp.name}-*.json"))
     try:
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         os.close(fd)
@@ -57,6 +63,9 @@ def main() -> int:
 
     cmd = [sys.executable, "-B", str(HERE / "run_tests.py"), "--binary", str(binp), "--control",
            "--json", str(result), "--release-lock", str(lock)]
+    topic = os.environ.get("CLI_PATCH_TESTS_NTFY_TOPIC")
+    if topic and new_version:
+        cmd += ["--ntfy", topic]
     kw: dict = {"stdin": subprocess.DEVNULL, "stdout": open(log, "w"), "stderr": subprocess.STDOUT}
     if os.name == "nt":
         # a hidden console the children inherit; DETACHED_PROCESS made each console child open a window

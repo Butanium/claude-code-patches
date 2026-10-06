@@ -82,8 +82,7 @@ def main() -> int:
     ap.add_argument("--tests-dir", action="append", type=Path, default=[])
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--json", type=Path, help="write the results here")
-    ap.add_argument("--ntfy", default=os.environ.get("CLI_PATCH_TESTS_NTFY_TOPIC", ""),
-                    help="ntfy.sh topic to post the table to (default: $CLI_PATCH_TESTS_NTFY_TOPIC)")
+    ap.add_argument("--ntfy", default="", help="ntfy.sh topic to post the table to")
     ap.add_argument("--release-lock", type=Path, help=argparse.SUPPRESS)  # after_patch.py's run lock
     a = ap.parse_args()
     try:

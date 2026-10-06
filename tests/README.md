@@ -84,9 +84,13 @@ With `CLAUDE_CLI_PATCH_TESTS=1` in the patch runner's environment,
 `run_cli_patches.sh` calls `tests/after_patch.py` after the patches. A patch
 applying or a claude update replaces the live binary, and each new state of it
 gets one background run with `--control`. The results go to
-`${XDG_CACHE_HOME:-~/.cache}/claude-cli-patch-tests/`, and the table is posted
-to `ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC` when that variable is set. Example
-hook command:
+`${XDG_CACHE_HOME:-~/.cache}/claude-cli-patch-tests/`. When
+`CLI_PATCH_TESTS_NTFY_TOPIC` is set, the table is posted to
+`ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC` for the first tested state of each claude
+version only, so developing a patch (which re-patches an already-tested
+version) does not notify. A binary aimed at by `CLAUDE_CLI_PATCH_TARGET` is
+never auto-tested, and a manual `run_tests.py` posts only with `--ntfy`.
+Example hook command:
 
 ```sh
 CLAUDE_CLI_PATCH_TESTS=1 CLI_PATCH_TESTS_NTFY_TOPIC="$MY_TOPIC" bash /path/to/run_cli_patches.sh
