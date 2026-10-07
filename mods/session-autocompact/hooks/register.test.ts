@@ -6,13 +6,15 @@ import { parse } from './register'
 // The engine beneath the plugin: one session at `world.tokens` of a 200k window,
 // recording compactions and status lines.
 function mockWorld(on: On, tokens: number) {
-  const world = { tokens, compactions: 0, status: [] as (string | undefined)[] }
+  const world = { tokens, attempts: 0, compactions: 0, isFailing: false, status: [] as (string | undefined)[] }
   mock.store(on)
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: world.tokens, window: 200_000 }, rateLimits: [] } }))
   on('session.compact', () => {
+    world.attempts++
+    if (world.isFailing) throw new Error('api down')
     world.compactions++
-    return { messages: [] }
+    return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] }
   })
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.status', (_$, e) => {
@@ -104,4 +106,19 @@ test('status line follows the setting', async ($, on) => {
   expect(world.status.at(-1)).toBe('on (≥400k)')
   await $.command.run(cmd('off'))
   expect(world.status.at(-1)).toBeUndefined()
+})
+
+test('a failed compaction is tried once per turn end, not retried', async ($, on) => {
+  const clock = mock.clock(on)
+  const world = mockWorld(on, 170_000)
+  world.isFailing = true
+  await $.session.start(START)
+  await $.command.run(cmd('on'))
+  await clock.advance(10_000)
+  expect(world.attempts).toBe(1)
+  await $.turn.start(TURN_START)
+  await $.turn.complete(TURN_END)
+  await clock.advance(10_000)
+  expect(world.attempts).toBe(2)
+  expect(world.compactions).toBe(0)
 })

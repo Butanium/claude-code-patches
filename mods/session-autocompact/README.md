@@ -14,8 +14,9 @@ session; `claude --settings '{"autoCompactEnabled":true}'` is per-process but on
 
 When on, a `turn.complete` hook on the main loop (not subagents, not interrupted turns)
 reads `$.session.usage().context` and calls `$.session.compact()`, the same compaction
-`/compact` runs, 200 ms after the turn ends. Turning it on while already past the
-threshold compacts right away. The status line shows `session-autocompact: on (≥80%)`.
+`/compact` runs, 200 ms after the turn ends. A failed compaction is not retried until the
+next turn ends: a compaction of a near-full window is expensive. Turning it on while already
+past the threshold compacts right away. The status line shows `session-autocompact: on (≥80%)`.
 
 The setting lives in `$.store` under `on:<session id>`, so it survives `claude -r`;
 `/clear` and `--fork-session` start a new id, which starts off.
@@ -27,9 +28,9 @@ that turn ends, and "continue" picks up.
 
 Tested 2026-10-07 on 2.1.289 in an interactive Haiku session (`--plugin-dir`): status,
 on at 5% → compacted 200 ms after the first turn, setting kept across `claude -r`, off →
-no compaction. `hooks/register.test.ts` type-checks but `claude plugin test` refuses to
-run here ("the rollout switch was saved off by an earlier session"), although mods load
-in interactive sessions; not run.
+no compaction. `claude plugin test .` runs `hooks/register.test.ts` (6 pass on 2.1.293;
+on 2.1.289 the command refused to run, "the rollout switch was saved off by an earlier
+session", although mods loaded in interactive sessions).
 
 Install from this repo's `mods/` marketplace (see `../README.md`):
 `claude plugin install session-autocompact@claude-code-patches`. Installs are

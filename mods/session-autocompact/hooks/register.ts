@@ -11,7 +11,6 @@ export type Threshold = { percent: number } | { tokens: number }
 
 const COMMAND = 'session-autocompact'
 const DEFAULT: Threshold = { percent: 80 }
-const RETRIES = 5
 
 let compacting = false
 let turnRunning = false
@@ -51,33 +50,29 @@ function showStatus($: EngineInterface, t: Threshold | undefined): void {
   $.ui.status(t ? `on (≥${label(t)})` : undefined)
 }
 
-function schedule($: EngineInterface, attempt: number): void {
-  $.clock.after(attempt === 0 ? 200 : 1000, () => void check($, attempt))
+// One attempt per turn end: a failed compaction on a near-full window is expensive, and the
+// next turn end tries again anyway.
+function schedule($: EngineInterface): void {
+  $.clock.after(200, () => void check($))
 }
 
-async function check($: EngineInterface, attempt: number): Promise<void> {
+async function check($: EngineInterface): Promise<void> {
   if (compacting || turnRunning) return
   const t = await load($)
   if (!t) return
   const { context } = await $.session.usage()
   if (context.tokens === undefined || !isOver(t, context.tokens, context.window)) return
-  if (attempt === 0) {
-    const pct = Math.round((context.tokens / context.window) * 100)
-    $.ui.log(`context at ${fmtTokens(context.tokens)} (${pct}%), past ${label(t)}; compacting`)
-  }
+  const pct = Math.round((context.tokens / context.window) * 100)
+  $.ui.log(`context at ${fmtTokens(context.tokens)} (${pct}%), past ${label(t)}; compacting`)
   compacting = true
-  let failed: unknown
   try {
     const r = await $.session.compact()
     if (r.skip !== undefined) $.ui.log(`compaction skipped: ${r.skip}`)
   } catch (err) {
-    failed = err
+    $.ui.log(`compaction failed: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     compacting = false
   }
-  if (failed === undefined) return
-  if (attempt < RETRIES && !turnRunning) schedule($, attempt + 1)
-  else $.ui.log(`compaction failed: ${failed instanceof Error ? failed.message : String(failed)}`)
 }
 
 async function run($: EngineInterface, args: string): Promise<string> {
@@ -101,7 +96,7 @@ async function run($: EngineInterface, args: string): Promise<string> {
   await $.store.set(key, parsed)
   showStatus($, parsed)
   const isPast = context.tokens !== undefined && isOver(parsed, context.tokens, context.window)
-  if (isPast) schedule($, 0)
+  if (isPast) schedule($)
   return `on, compacts when a turn ends with context ≥ ${label(parsed)}${now}.${isPast ? ' Already past it: compacting now.' : ''}`
 }
 
@@ -128,7 +123,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return done
     turnRunning = false
     showStatus($, await load($))
-    if (!e.isAborted) schedule($, 0)
+    if (!e.isAborted) schedule($)
     return done
   })
 }
