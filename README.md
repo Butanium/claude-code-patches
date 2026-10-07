@@ -96,7 +96,8 @@ puts it back.
 Can't patch the binary? [`mods/`](mods/README.md) holds a plugin of function
 hooks (Claude Mods) that reproduces 9 of these patches without editing the binary.
 It is weaker in a few places, listed there; for example, the task reminder is
-still recorded in the transcript and only kept out of requests.
+still recorded in the transcript and only kept out of requests. `mods/` also
+holds mods with no byte-patch counterpart, such as `/session-autocompact`.
 
 To check that the patches *work*, not just that they applied, see
 [`tests/`](tests/README.md): one behavior test per patch, each run in a fresh

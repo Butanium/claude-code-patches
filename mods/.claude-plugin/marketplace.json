@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-patches",
+  "owner": {"name": "claude-code-patches"},
+  "plugins": [
+    {
+      "name": "cli-patch-mods",
+      "source": "./cli-patch-mods",
+      "description": "Function-hook alternative to 9 of this repo's byte patches"
+    },
+    {
+      "name": "own-bash-edit-notice",
+      "source": "./own-bash-edit-notice",
+      "description": "Cut the 'changed on disk' notice to one line when the session's own Bash command changed the file"
+    },
+    {
+      "name": "session-autocompact",
+      "source": "./session-autocompact",
+      "description": "/session-autocompact: auto-compact this session only, between turns, once context passes a threshold"
+    }
+  ]
+}

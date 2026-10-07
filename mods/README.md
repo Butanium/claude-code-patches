@@ -1,31 +1,47 @@
-# Mods: a plugin alternative to some patches
+# Mods
 
-`cli-patch-mods/` is a Claude Code plugin of function hooks (Claude Mods) that
-reproduces 9 of the byte patches through documented hook events instead of
-editing the binary. It is an **alternative**, not a replacement: the byte patches
-remain the primary mechanism, and where both are loaded they agree. Each hook is
-a no-op on a binary that is already patched.
+Claude Code plugins of function hooks (Claude Mods). Each changes the CLI's
+behavior through documented hook events instead of editing the binary:
 
-Use the mod when you can't or won't patch the binary: an install whose binary
-you don't own, a machine where you want to keep stock bytes, or the window
-after an update in which a patch no longer applies.
+| plugin | what it does |
+|---|---|
+| `cli-patch-mods/` | reproduces 9 of the byte patches (below) |
+| `own-bash-edit-notice/` | cuts the "changed on disk" notice to one line when the session's own Bash command made the change ([README](own-bash-edit-notice/README.md)) |
+| `session-autocompact/` | `/session-autocompact on`: auto-compact one session while the global setting stays off ([README](session-autocompact/README.md)) |
 
-## Loading it
+## Loading them
 
-Any of these loads it from the checkout:
+`mods/` is a folder marketplace named `claude-code-patches`:
 
-- `CLAUDE_CODE_PLUGIN_DIRS=/path/to/claude-code-patches/mods/cli-patch-mods` in
+```sh
+claude plugin marketplace add /path/to/claude-code-patches/mods
+claude plugin install session-autocompact@claude-code-patches
+```
+
+An installed plugin reaches every session, pane teammates included. Other ways
+to load one from the checkout:
+
+- `CLAUDE_CODE_PLUGIN_DIRS=/path/to/claude-code-patches/mods/<plugin>` in
   the `env` block of `~/.claude/settings.json`. Every session gets it, and so do
   pane teammates, which inherit the environment.
-- `claude --plugin-dir /path/to/.../mods/cli-patch-mods` for one session.
-- Add `mods/` as a folder marketplace and install the plugin from it.
+- `claude --plugin-dir /path/to/.../mods/<plugin>` for one session.
+
+## cli-patch-mods
+
+A plugin that reproduces 9 of the byte patches. It is an **alternative**, not a
+replacement: the byte patches remain the primary mechanism, and where both are
+loaded they agree. Each hook is a no-op on a binary that is already patched.
+
+Use it when you can't or won't patch the binary: an install whose binary
+you don't own, a machine where you want to keep stock bytes, or the window
+after an update in which a patch no longer applies.
 
 Function hooks are switched off when the GrowthBook flag
 `tengu_plugin_hooks_modules` is off (it defaults to on, offline included), in
 bare and safe mode, with `disableAllHooks`, and in "diskless" cloud sessions.
 A byte patch applies in all of those.
 
-## What it covers, and how it differs from the patch
+### What it covers, and how it differs from the patch
 
 | patch | hook | difference from the byte patch |
 |---|---|---|
@@ -46,7 +62,7 @@ tool's `validateInput`, so rewriting `sleep 26` to `/bin/sleep 26` gets past the
 guard. The rewritten command then needs its own permission rule, and the trick
 depends on the guard's detector, so it is left out.
 
-## Tests
+### Tests
 
 `covers.json` lists the patches this plugin reproduces. The behavior suite runs
 those tests on the stock binary with the plugin loaded and expects the patched
