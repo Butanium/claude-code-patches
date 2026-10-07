@@ -52,7 +52,8 @@ SCHEMA_DESC = b'Mutually exclusive with isolation: "worktree".'
 
 DESTRUCTURE = re.compile(
     rb"name:" + JSID + rb",isolation:(" + JSID + rb")\}=" + JSID
-    + rb",\{prompt:" + JSID + rb",description:" + JSID + rb",cwd:(" + JSID + rb")\}="
+    + rb",\{prompt:" + JSID + rb",description:" + JSID + rb",cwd:(" + JSID + rb")"
+    + rb"(?:,[$\w]+:" + JSID + rb")*\}="  # 2.1.293 appended `effort:<id>`
 )
 SPAWN_REQUIRE = b"let{spawnTeammate:"
 CALL_ANCHOR = b"use_splitpane:!0,"
