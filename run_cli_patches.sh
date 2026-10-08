@@ -81,7 +81,7 @@ fi
 mapfile -t ORDERED < <(
     for dir in "${DIRS[@]}"; do
         for patch in "$dir"/*; do
-            [ -f "$patch" ] && printf '%s\t%s\n' "$(basename "$patch")" "$patch"
+            [ -f "$patch" ] && printf '%s\t%s\n' "${patch##*/}" "$patch"
         done
     done | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -s | cut -f2-
 )
@@ -91,22 +91,28 @@ mapfile -t ORDERED < <(
 # find the installed binary themselves, or honor a CLAUDE_CLI_PATCH_TARGET
 # already in the environment (one-off aiming at a copy). apply_patches.py runs
 # the pass in one process so the binary is read and written once, not once per
-# patch; it prints the per-patch success (stderr) and failure (stdout) messages.
+# patch; it prints the per-patch success (stderr) and failure (stdout) messages,
+# and when neither the binary nor the patches changed since its last pass it
+# skips the work and replays that pass's output. The main pass also lints the
+# patches (stdout findings: a `\w` identifier capture works until the minifier
+# emits a `$` name). `${x##*/}` rather than `basename`: on Git Bash every
+# `$(...)` forks, ~30 ms each.
 apply_all() {
     local target="${1:-}" label="" patch name
-    local todo=()
+    local todo=() opts=(--lint)
     if [ -n "$target" ]; then
         export CLAUDE_CLI_PATCH_TARGET="$target"
-        label=" [$(basename "$target")]"
+        label=" [${target##*/}]"
+        opts=()
     fi
     for patch in ${ORDERED+"${ORDERED[@]}"}; do
-        name="$(basename "$patch")"
+        name="${patch##*/}"
         case "$name" in __pycache__|*.pyc|.*) continue;; esac
         case "$SKIP" in *",$name,"*) echo "cli-patch $name$label: skipped (CLAUDE_CLI_PATCHES_SKIP)" >&2; continue;; esac
         todo+=("$patch")
     done
     [ "${#todo[@]}" -gt 0 ] || return 0
-    "$PYTHON" -B "$HERE/apply_patches.py" --label="$label" "${todo[@]}" \
+    "$PYTHON" -B "$HERE/apply_patches.py" --label="$label" ${opts+"${opts[@]}"} "${todo[@]}" \
         || echo "CLI patches$label: apply_patches.py exited $? — which patches are active is unknown"
 }
 
@@ -147,9 +153,6 @@ for _t in ${_targets+"${_targets[@]}"}; do
     fi
     ( apply_all "$_bin" )
 done
-
-# stdout findings: a `\w` identifier capture works until the minifier emits a `$` name
-"$PYTHON" -B "$HERE/lint_patches.py" "${DIRS[@]}" 2>&1
 
 # Opt-in: prove the patches by behavior, not by anchor. When the live binary is
 # in a state no suite run has seen yet (a patch just applied, or claude updated),

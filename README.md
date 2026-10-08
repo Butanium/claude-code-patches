@@ -69,7 +69,12 @@ whole pass runs in one process (`apply_patches.py`): the binary is read once,
 each patch edits the in-memory copy, and the result is written back once. One
 write per patch made the first session after an update slow (18 patches × ~4 s
 on Windows, where Defender scans each newly written executable); batched it is
-~25 s, and a pass with nothing to apply ~6 s.
+~25 s. When neither the binary nor any patch file changed since the last pass
+(size and mtime, `.orig` and helper modules included), the pass is skipped and
+its output replayed, failures and lint findings included: ~0.7 s per session
+start instead of ~4.5 s. The record lives in
+`~/.cache/claude-cli-patches/pass-*.json`; delete it, or run
+`apply_patches.py --no-cache`, to force a pass.
 Don't want one of the patches? Delete it, or park it without
 touching the checkout by listing its filename in the `CLAUDE_CLI_PATCHES_SKIP`
 environment variable (comma-separated, e.g. in the `env` block of

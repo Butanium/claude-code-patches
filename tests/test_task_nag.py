@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """task-nag: no "task tools haven't been used recently" reminder in a long run of turns.
 
-One `claude -p --model haiku` session (haiku gets the task tools; newer models
-don't, so the reminder can't fire there at all) makes 14 sequential Bash calls
+One `claude -p --model claude-haiku-4-5` session makes 14 sequential Bash calls
 without touching task tools, with CLAUDE_CODE_TODO_REMINDER_MODE=baseline so the
 env switch that also silences the reminder is not what we observe.
   patched: no task_reminder / todo_reminder attachment in the transcript
            (mod arm: attachments may be recorded, but none reaches a request)
   stock:   at least one, sent to the model (the stock threshold is 10 turns)
+Pinned to claude-haiku-4-5, not the `haiku` alias: only the models on the CLI's
+task-tools allowlist get TodoWrite/Task*, and without them the reminder cannot
+fire on stock either. 2.1.295 moved the alias to claude-haiku-5-5, which is not
+on the list, and the stock arm passed as "patched".
 Cross-platform.
 """
 
@@ -29,7 +32,7 @@ PROMPT = (
 
 
 def run(binary: Path) -> Verdict:
-    rec = print_session(binary, PROMPT, name="task-nag", timeout=600,
+    rec = print_session(binary, PROMPT, name="task-nag", model="claude-haiku-4-5", timeout=600,
                         settings={"env": {"CLAUDE_CODE_TODO_REMINDER_MODE": "baseline"}})
     calls = len(tool_uses(rec.rows, "Bash"))
     reminders = [r for r in rec.rows if (r.get("attachment") or {}).get("type") in ("task_reminder", "todo_reminder")]
