@@ -34,7 +34,8 @@ import _binpatch  # noqa: E402
 
 def run_python(path: Path) -> tuple[int, str]:
     """Run `path` as __main__ with stdout and stderr captured together (the
-    runner's `2>&1`). Lets `_binpatch.StaleRead` through to the caller."""
+    runner's `2>&1`), at the Python level only: fd 1 and 2 stay the hook's, which
+    the README's patch contract covers. Lets `_binpatch.StaleRead` through."""
     buf = io.StringIO()
     rc = 0
     argv = sys.argv

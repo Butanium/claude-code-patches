@@ -180,7 +180,10 @@ The contract, enforced by `run_cli_patches.sh`:
 3. Exit nonzero = could not apply; stdout/stderr explain why and where to
    re-investigate. The runner injects that into Claude's context, so write the
    message *for the Claude that will re-derive the patch* against the new
-   binary.
+   binary. A Python patch reports through `print` / `sys.stdout` /
+   `sys.stderr` only: the runner captures its output at the Python level, so
+   a subprocess it starts, or an `os.write` to fd 1 or 2, skips the capture
+   and lands in Claude's context unlabeled on every session start.
 4. Never write the live binary in place: patch a temp copy, verify the result,
    keep a `.orig` backup, atomic-rename over the target. The Python patches get
    this — plus binary location and the Windows running-exe swap — for free from
