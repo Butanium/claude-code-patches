@@ -68,7 +68,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 FLAG = b'"tengu_breezy_crescent"'
 # group 1: the optional `Nt()||` diskless disjunct (2.1.289+); group 2: the flag getter.
@@ -96,7 +96,7 @@ def replacement(m: re.Match[bytes]) -> bytes:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED.search(data):
             print(f"monitor-persistent: confirmed already patched ({binp})", file=sys.stderr)
             return 0

@@ -37,7 +37,8 @@
 # zz-bytecode-off, and its own `.orig` backup next to it.
 set -u
 
-DIR="${CLAUDE_CLI_PATCHES_DIR:-$(cd "$(dirname "$0")" && pwd)/patches}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DIR="${CLAUDE_CLI_PATCHES_DIR:-$HERE/patches}"
 SKIP=",${CLAUDE_CLI_PATCHES_SKIP:-},"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
@@ -73,16 +74,6 @@ if ! python3 -c "" >/dev/null 2>&1; then
     fi
 fi
 
-run_patch() {
-    case "$1" in
-        *.py) "$PYTHON" "$1" 2>&1 ;;
-        *.sh) bash "$1" 2>&1 ;;
-        *)    if [ -x "$1" ]; then "$1" 2>&1
-              else echo "no interpreter for this extension and the file is not executable"; return 126
-              fi ;;
-    esac
-}
-
 # Order by BASENAME across every directory, not directory-by-directory: the
 # `zz-` prefix means "runs last" (zz-bytecode-off.py makes the other patches'
 # text edits actually execute), and a per-directory walk would run it before
@@ -98,9 +89,12 @@ mapfile -t ORDERED < <(
 # apply_all [target]: one pass over every patch. With a target, the patches aim
 # at that file (CLAUDE_CLI_PATCH_TARGET) and messages name it; without, they
 # find the installed binary themselves, or honor a CLAUDE_CLI_PATCH_TARGET
-# already in the environment (one-off aiming at a copy).
+# already in the environment (one-off aiming at a copy). apply_patches.py runs
+# the pass in one process so the binary is read and written once, not once per
+# patch; it prints the per-patch success (stderr) and failure (stdout) messages.
 apply_all() {
-    local target="${1:-}" label="" patch name output rc
+    local target="${1:-}" label="" patch name
+    local todo=()
     if [ -n "$target" ]; then
         export CLAUDE_CLI_PATCH_TARGET="$target"
         label=" [$(basename "$target")]"
@@ -109,17 +103,11 @@ apply_all() {
         name="$(basename "$patch")"
         case "$name" in __pycache__|*.pyc|.*) continue;; esac
         case "$SKIP" in *",$name,"*) echo "cli-patch $name$label: skipped (CLAUDE_CLI_PATCHES_SKIP)" >&2; continue;; esac
-
-        output="$(run_patch "$patch")"
-        rc=$?
-        if [ "$rc" -eq 0 ]; then
-            echo "cli-patch $name$label: $output" >&2
-        else
-            echo "CLI patch '$name' FAILED (exit $rc) — its behavior change is NOT active for the claude binary${label:-" currently installed"}:"
-            echo "$output"
-            echo "Script: $patch"
-        fi
+        todo+=("$patch")
     done
+    [ "${#todo[@]}" -gt 0 ] || return 0
+    "$PYTHON" -B "$HERE/apply_patches.py" --label="$label" "${todo[@]}" \
+        || echo "CLI patches$label: apply_patches.py exited $? — which patches are active is unknown"
 }
 
 apply_all
@@ -161,7 +149,7 @@ for _t in ${_targets+"${_targets[@]}"}; do
 done
 
 # stdout findings: a `\w` identifier capture works until the minifier emits a `$` name
-"$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/lint_patches.py" "${DIRS[@]}" 2>&1
+"$PYTHON" -B "$HERE/lint_patches.py" "${DIRS[@]}" 2>&1
 
 # Opt-in: prove the patches by behavior, not by anchor. When the live binary is
 # in a state no suite run has seen yet (a patch just applied, or claude updated),
@@ -169,7 +157,7 @@ done
 # ntfy.sh/$CLI_PATCH_TESTS_NTFY_TOPIC if set. It spends real model calls for
 # several minutes, hence opt-in.
 if [ "${CLAUDE_CLI_PATCH_TESTS:-}" = "1" ]; then
-    "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/tests/after_patch.py" 2>&1
+    "$PYTHON" -B "$HERE/tests/after_patch.py" 2>&1
 fi
 
 # Opt-in: after an update, diff what the new binary exposes against the previous
@@ -181,7 +169,7 @@ fi
 # summary when a surface a customized harness reads grew or extraction failed.
 # stderr carries only unpack chatter; failures are printed to stdout.
 if [ "${CLAUDE_CLI_SURFACE_DIFF:-}" = "1" ]; then
-    "$PYTHON" -B "$(cd "$(dirname "$0")" && pwd)/surface_diff.py" --auto 2>/dev/null
+    "$PYTHON" -B "$HERE/surface_diff.py" --auto 2>/dev/null
 fi
 
 exit 0

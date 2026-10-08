@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 PATTERN = b"TURNS_SINCE_WRITE:10,TURNS_BETWEEN_REMINDERS:10"
 PATCHED = b"TURNS_SINCE_WRITE:1e9,TURNS_BETWEEN_REMINDERS:9"
@@ -35,7 +35,7 @@ assert len(PATTERN) == len(PATCHED), (len(PATTERN), len(PATCHED))
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED in data:
             print(f"task-nag: confirmed already patched ({binp})", file=sys.stderr)
             return 0

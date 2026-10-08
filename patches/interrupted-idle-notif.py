@@ -50,7 +50,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 MARKER = b"hFq3nInt"
 COMMENT = b"/*" + MARKER + b"*/"
@@ -82,7 +82,7 @@ NEARBY_WINDOW = 400
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if MARKER in data:
             print(
                 f"interrupted-idle-notif: confirmed already patched ({binp})",

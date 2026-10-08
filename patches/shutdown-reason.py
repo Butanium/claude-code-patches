@@ -73,7 +73,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 MARKER = b"[kQ9dR shutdown-reason patch]"
 
@@ -166,7 +166,7 @@ def main() -> int:
         print("no claude binary found (unknown install layout)", file=sys.stderr)
         return 1
     binp = cands[0]
-    data = binp.read_bytes()
+    data = read_binary(binp)
 
     m = BOUND_RE.search(data)
     if not m:

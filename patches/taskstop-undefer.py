@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 PATTERN = b'shouldDefer:!0,isConcurrencySafe(){return!0},toAutoClassifierInput(e){return e.task_id'
 PATCHED = b'shouldDefer:!1,isConcurrencySafe(){return!0},toAutoClassifierInput(e){return e.task_id'
@@ -58,7 +58,7 @@ assert len(PATTERN) == len(PATCHED), (len(PATTERN), len(PATCHED))
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED in data:
             print(f"taskstop-undefer: confirmed already patched ({binp})", file=sys.stderr)
             return 0

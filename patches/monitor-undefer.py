@@ -43,7 +43,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 _NEXT_PROP = rb'(permissionCheckFailureDecision|userFacingName\(\)\{return"Monitor"\})'
 PATTERN = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!0," + _NEXT_PROP)
@@ -53,7 +53,7 @@ PATCHED = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!1," + _NEXT_PROP)
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED.search(data):
             print(f"monitor-undefer: confirmed already patched ({binp})", file=sys.stderr)
             return 0

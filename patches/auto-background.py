@@ -69,7 +69,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 # Stable property name that survives identifier renames. It appears at the two
 # tool call sites (Bash, PowerShell) and in the `l6t({...canAutoBackground:r})`
@@ -120,7 +120,7 @@ def main() -> int:
         print("no claude binary found (unknown install layout)", file=sys.stderr)
         return 1
     binp = cands[0]
-    data = binp.read_bytes()
+    data = read_binary(binp)
 
     if find_site(data, PATCHED_TAIL):
         print(f"auto-background: confirmed already patched ({binp})", file=sys.stderr)

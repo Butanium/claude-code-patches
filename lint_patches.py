@@ -5,6 +5,11 @@ The minifier hands out identifiers like `R$` / `$e`; a bare `\\w+` capture
 stops matching them and the patch silently bails on the next build (this broke
 shutdown-reason on 2.1.280). Use `_binpatch.JSID` or `[$\\w]+` instead.
 
+Also flags a patch that calls `apply_patch` without reading the binary through
+`read_binary`: in the runner's batch pass it would read the stale file, and
+apply_patches.py has to re-run it outside the batch (correct, but one extra
+full write of the binary).
+
 Prints one line per finding to stdout (the runner relays it to Claude's
 context); exits 0 either way. Docstrings are skipped.
 """
@@ -27,7 +32,8 @@ def bad_w(s: str) -> bool:
 
 
 def lint(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(), str(path))
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text, str(path))
     docstrings = {
         id(n.value)
         for n in ast.walk(tree)
@@ -39,6 +45,9 @@ def lint(path: Path) -> list[str]:
             s = n.value.decode("latin-1") if isinstance(n.value, bytes) else n.value
             if bad_w(s):
                 out.append(f"{path.name}:{n.lineno}: `\\w` can't match `$` in minified identifiers — use JSID or [$\\w]")
+    if "apply_patch(" in text and "read_binary(" not in text:
+        out.append(f"{path.name}: calls apply_patch but never read_binary — read the binary with "
+                   f"`_binpatch.read_binary(binp)`, not `binp.read_bytes()`, or the batch pass re-runs it alone")
     return out
 
 

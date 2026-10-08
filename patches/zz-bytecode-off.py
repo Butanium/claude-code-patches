@@ -34,21 +34,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import _bungraph
-from _binpatch import apply_patch, candidate_binaries, protect_backup
+from _binpatch import apply_patch, candidate_binaries, protect_backup, read_binary
 
 CHUNK = 1 << 20
+SUB = 1 << 12
 
 
 def changed_offsets(a: bytes, b: bytes):
     """Yield the file offset of every differing byte (a and b same length),
-    comparing in 1 MiB chunks so identical regions cost one memcmp each."""
+    comparing 1 MiB then 4 KiB chunks so identical regions cost one memcmp each
+    and only the 4 KiB around an edit is walked byte by byte."""
     for start in range(0, len(a), CHUNK):
-        ca, cb = a[start : start + CHUNK], b[start : start + CHUNK]
-        if ca == cb:
+        if a[start : start + CHUNK] == b[start : start + CHUNK]:
             continue
-        for i, (x, y) in enumerate(zip(ca, cb)):
-            if x != y:
-                yield start + i
+        for sub in range(start, min(start + CHUNK, len(a)), SUB):
+            ca, cb = a[sub : sub + SUB], b[sub : sub + SUB]
+            if ca == cb:
+                continue
+            for i, (x, y) in enumerate(zip(ca, cb)):
+                if x != y:
+                    yield sub + i
 
 
 def main() -> int:
@@ -69,7 +74,7 @@ def main() -> int:
         )
         return 1
     protect_backup(orig)
-    data = binp.read_bytes()
+    data = read_binary(binp)
     stock = orig.read_bytes()
     if len(data) != len(stock):
         print(

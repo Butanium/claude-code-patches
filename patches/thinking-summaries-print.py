@@ -58,7 +58,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 ANCHOR = b'{explicitDisplay:'
 # Groups: 1-4 the destructured parameter names, 5 the settings getter, 6 the
@@ -99,7 +99,7 @@ def build_replacement(m: re.Match) -> bytes:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED_RX.search(data):
             print(f"thinking-summaries-print: confirmed already patched ({binp})", file=sys.stderr)
             return 0

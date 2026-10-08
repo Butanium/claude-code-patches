@@ -75,7 +75,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 
 def _detector(comparison: bytes) -> re.Pattern[bytes]:
@@ -117,7 +117,7 @@ def main() -> int:
         print("no claude binary found (unknown install layout)", file=sys.stderr)
         return 1
     binp = cands[0]
-    data = binp.read_bytes()
+    data = read_binary(binp)
 
     if PATCHED_RX.search(data):
         print(f"sleep-guard-off: confirmed already patched ({binp})", file=sys.stderr)

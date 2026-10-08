@@ -76,7 +76,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 _I = JSID.decode()  # inline-able in the f-string pattern below
 
@@ -113,7 +113,7 @@ REINVESTIGATE = (
 
 def main() -> int:
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if MARKER in data:
             print(f"peer-msg-warning: confirmed already patched ({binp})", file=sys.stderr)
             return 0

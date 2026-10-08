@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 I = rb"(" + JSID + rb")"
 STOCK = re.compile(
@@ -62,7 +62,7 @@ def replacement(m: re.Match) -> bytes:
 
 def main() -> int:
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if CONTEXT not in data:
             continue
         if PATCHED.search(data):

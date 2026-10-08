@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 # Anchor ONLY on the arrow head + the `planExists` ternary — all stable
 # identifiers (`plan_mode_exit`, `e.planExists`, `e.planFilePath`) and the stable
@@ -83,7 +83,7 @@ def build_replacement(m: re.Match[bytes]) -> bytes:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if GUARD in data:
             print(f"plan-exit-nag: confirmed already patched ({binp})", file=sys.stderr)
             return 0

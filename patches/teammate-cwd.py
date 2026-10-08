@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 MARKER = b"/*T7cwd"
 
@@ -160,7 +160,7 @@ def main() -> int:
     if not cands:
         return fail("no claude binary found")
     binp = cands[0]
-    data = binp.read_bytes()
+    data = read_binary(binp)
     if MARKER in data:
         if SCHEMA_NEW not in data or b".cwd)throw" not in data:
             return fail(f"marker present but the other edits are missing in {binp} — half-applied?")

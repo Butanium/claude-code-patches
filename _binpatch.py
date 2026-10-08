@@ -20,10 +20,19 @@ Windows handling lives in ONE place instead of being copy-pasted three times:
 Only ONE candidate is ever returned, on purpose: an old patched binary lingering
 in versions/ must not let a patch report 'already patched' and skip the live one
 (the stale-old-version masking bug).
+
+Batch mode (`apply_patches.py`, what the runner uses): all patches run in one
+process against one in-memory copy. `read_binary()` returns that copy,
+`apply_patch()` only replaces it, and `commit_batch()` writes the file once at
+the end. Run standalone, a patch reads and writes the file itself, as before.
+The batch exists for speed: every apply is a full read + write + re-read of a
+~250 MB file, ~4 s on Windows with Defender scanning each new executable, so a
+fresh binary took 18 x 4 s at session start.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -84,6 +93,8 @@ def candidate_binaries() -> list[Path]:
       3. newest file in `~/.local/share/claude/versions` (last resort; an inert
          copy on the native Windows layout, but correct where bin/ is a symlink).
     """
+    if _batch is not None:
+        return [_batch.binp]
     override = os.environ.get("CLAUDE_CLI_PATCH_TARGET")
     if override:
         p = Path(override)
@@ -195,27 +206,131 @@ def protect_backup(orig: Path) -> None:
         pass
 
 
+class StaleRead(RuntimeError):
+    """In a batch, a patch passed `apply_patch` bytes other than the batch's
+    current copy: it read the file itself (`binp.read_bytes()`) instead of calling
+    `read_binary()`, so its result would silently drop every edit staged before
+    it. `apply_patches.py` catches this and re-runs that patch against the file."""
+
+
+class _Batch:
+    def __init__(self, binp: Path):
+        self.binp = binp
+        self.data = binp.read_bytes()
+        self.dirty = False
+
+
+_batch: _Batch | None = None
+
+
+@contextlib.contextmanager
+def batch(binp: Path):
+    """Stage every `apply_patch` on `binp` in memory until `commit_batch()`."""
+    global _batch
+    _batch = _Batch(Path(binp))
+    try:
+        yield _batch
+    finally:
+        _batch = None
+
+
+@contextlib.contextmanager
+def outside_batch():
+    """Run a patch the standalone way (file in, file out) in the middle of a batch.
+    Commit before entering and `reload_batch()` after, or edits get lost."""
+    global _batch
+    saved, _batch = _batch, None
+    try:
+        yield
+    finally:
+        _batch = saved
+
+
+def commit_batch() -> bool:
+    """Write the staged bytes to the batch's binary if any patch changed them;
+    True if it wrote. Raises (live binary untouched) if the write fails."""
+    b = _batch
+    if b is None or not b.dirty:
+        return False
+    final = b.data
+
+    def _verify(written: bytes) -> None:
+        if written != final:
+            raise RuntimeError("post-write verification failed (re-read bytes differ from "
+                               "the staged result) — live binary untouched")
+
+    _write_and_swap(b.binp, final, _verify)
+    b.dirty = False
+    return True
+
+
+def reload_batch() -> None:
+    """Re-read the batch's binary from disk, dropping anything uncommitted."""
+    if _batch is not None:
+        _batch.data = _batch.binp.read_bytes()
+        _batch.dirty = False
+
+
+def _in_batch(binp: Path) -> bool:
+    return _batch is not None and Path(binp) == _batch.binp
+
+
+def read_binary(binp: Path) -> bytes:
+    """The bytes a patch should inspect and edit: the batch's in-memory copy, which
+    carries the edits of the patches before it in the pass, or the file itself when
+    the patch runs standalone. Patches must read the binary through this, not with
+    `binp.read_bytes()` (see `StaleRead`)."""
+    if _in_batch(binp):
+        return _batch.data
+    return Path(binp).read_bytes()
+
+
+def _ensure_orig(binp: Path) -> None:
+    """(Re)make the pristine `.orig` backup whenever its size differs from the
+    binary's, so it refreshes after a claude update instead of going stale."""
+    orig = binp.with_name(binp.name + ".orig")
+    if not orig.exists() or orig.stat().st_size != binp.stat().st_size:
+        shutil.copy2(binp, orig)  # capture pristine-for-this-version bytes
+    protect_backup(orig)
+
+
 def apply_patch(
     binp: Path,
     original: bytes,
     patched: bytes,
     verify: Callable[[bytes], None],
 ) -> None:
-    """Atomically replace `binp`'s bytes with `patched` (same length as original).
+    """Replace `binp`'s bytes with `patched` (same length as original).
 
-    `verify(written_bytes)` must raise on a bad/partial write; it runs against the
-    temp copy re-read from disk, before anything touches the live binary. A
-    pristine `.orig` backup is (re)made whenever its on-disk size differs from the
-    current binary's — so it refreshes after a claude update instead of going
-    stale. Windows running-exe lock is handled via rename-aside. Temp files are
-    cleaned up on any failure.
+    Standalone: atomically. `verify(written_bytes)` must raise on a bad/partial
+    write; it runs against the temp copy re-read from disk, before anything
+    touches the live binary. Windows running-exe lock is handled via rename-aside.
+    Temp files are cleaned up on any failure.
+
+    In a batch: `verify` runs on `patched` in memory and `patched` becomes the
+    batch's copy; the disk write, re-read check and swap happen once, in
+    `commit_batch()`. Either way the `.orig` backup is made before the first edit
+    of a binary.
     """
     if len(patched) != len(original):
         raise RuntimeError(
             f"patched length {len(patched)} != original {len(original)} — refusing "
             f"(same-length in-place edit is the whole safety contract)"
         )
+    if _in_batch(binp):
+        b = _batch
+        if original is not b.data and original != b.data:
+            raise StaleRead(f"{binp}: the bytes passed as `original` are not the batch's current copy")
+        new = bytes(patched)
+        verify(new)
+        _ensure_orig(b.binp)  # the file on disk is still unedited here
+        b.data = new
+        b.dirty = True
+        return
+    _write_and_swap(binp, patched, verify)
 
+
+def _write_and_swap(binp: Path, patched: bytes, verify: Callable[[bytes], None]) -> None:
     _sweep_orphans(binp)
     fd, tmp_name = tempfile.mkstemp(prefix=binp.name + ".patch.", dir=str(binp.parent))
     tmp = Path(tmp_name)
@@ -224,10 +339,7 @@ def apply_patch(
             f.write(patched)
         verify(tmp.read_bytes())  # caller-supplied post-write check; raises on bad
         shutil.copymode(binp, tmp)
-        orig = binp.with_name(binp.name + ".orig")
-        if not orig.exists() or orig.stat().st_size != binp.stat().st_size:
-            shutil.copy2(binp, orig)  # capture pristine-for-this-version bytes
-        protect_backup(orig)
+        _ensure_orig(binp)
         _atomic_swap(tmp, binp)
     except BaseException:
         if tmp.exists():

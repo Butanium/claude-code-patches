@@ -62,7 +62,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 LOG = b"[BackendRegistry] isInProcessEnabled: true (non-interactive session)"
 LOG_PATCHED = b"[BackendRegistry] in-process: -p"
@@ -116,7 +116,7 @@ def build_replacement(m: re.Match) -> bytes:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         gate_done = bool(PATCHED_RX.search(data))
         team_done = bool(TEAM_PATCHED_RX.search(data))
         if gate_done and team_done:

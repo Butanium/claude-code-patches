@@ -53,7 +53,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 _TAIL = rb",isReadOnly\((" + JSID + rb")\)\{return typeof \1\.message"
 PATTERN = re.compile(rb"shouldDefer:!0" + _TAIL)
@@ -63,7 +63,7 @@ PATCHED = re.compile(rb"shouldDefer:!1" + _TAIL)
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED.search(data):
             print(f"sendmessage-undefer: confirmed already patched ({binp})", file=sys.stderr)
             return 0

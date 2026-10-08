@@ -61,11 +61,16 @@ Clone anywhere and add a `SessionStart` hook to `~/.claude/settings.json`:
 }
 ```
 
-The runner executes every executable file in `patches/` on each session start.
+The runner applies every patch in `patches/` on each session start.
 Patches that are already applied confirm and exit quietly; patches that can't
 apply (upstream changed) print a failure into Claude's context so your session
-knows the behavior change is not active — and can go re-derive the patch.
-Don't want one of the patches? Delete it, `chmod -x` it, or park it without
+knows the behavior change is not active — and can go re-derive the patch. The
+whole pass runs in one process (`apply_patches.py`): the binary is read once,
+each patch edits the in-memory copy, and the result is written back once. One
+write per patch made the first session after an update slow (18 patches × ~4 s
+on Windows, where Defender scans each newly written executable); batched it is
+~25 s, and a pass with nothing to apply ~6 s.
+Don't want one of the patches? Delete it, or park it without
 touching the checkout by listing its filename in the `CLAUDE_CLI_PATCHES_SKIP`
 environment variable (comma-separated, e.g. in the `env` block of
 `settings.json`: `"CLAUDE_CLI_PATCHES_SKIP": "idle-notif.py"`). Skipping only
@@ -174,8 +179,13 @@ The contract, enforced by `run_cli_patches.sh`:
 4. Never write the live binary in place: patch a temp copy, verify the result,
    keep a `.orig` backup, atomic-rename over the target. The Python patches get
    this — plus binary location and the Windows running-exe swap — for free from
-   the shared `_binpatch.py` helper (`candidate_binaries()` + `apply_patch()`);
-   a new patch just supplies its anchors and a `verify` callback.
+   the shared `_binpatch.py` helper (`candidate_binaries()` + `read_binary()` +
+   `apply_patch()`); a new patch just supplies its anchors and a `verify`
+   callback. Read the binary with `read_binary(binp)`, not `binp.read_bytes()`:
+   in the runner's batch pass it returns the copy carrying the earlier patches'
+   edits. A patch that reads the file itself still works (the runner writes the
+   batch out and re-runs it against the file), but costs an extra full write,
+   and `lint_patches.py` flags it.
 5. Add `tests/test_<name>.py` that observes the change from a fresh process, and
    run it with `--control` so it is shown to fail on the stock binary.
 

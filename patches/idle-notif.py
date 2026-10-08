@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries
+from _binpatch import apply_patch, candidate_binaries, read_binary
 
 # Stable, human-readable anchors (no minified identifiers — survive rebuilds).
 SUFFIX = b'},"Failed to send idle notification to team leader"'
@@ -93,7 +93,7 @@ def locate_body(data: bytes) -> tuple[int, int]:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if SUFFIX not in data:
             continue
         try:

@@ -61,7 +61,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 
 ANCHOR = b'"query_thinking_only_response","nudged"'
 # The telemetry emitter is itself a minified import (`g(` in 2.1.257, `h(` in
@@ -90,7 +90,7 @@ def build_replacement(pattern: bytes, ident: bytes) -> bytes:
 def main() -> int:
     target = None
     for binp in candidate_binaries():
-        data = binp.read_bytes()
+        data = read_binary(binp)
         if PATCHED_RX.search(data):
             print(f"thinking-only-nag: confirmed already patched ({binp})", file=sys.stderr)
             return 0
