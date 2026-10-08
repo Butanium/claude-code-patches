@@ -127,6 +127,8 @@ def stock_control(binary: Path) -> Path:
     # Per-process name: suites for the same version overlap (after_patch.py starts one per
     # patched binary state), and each run deletes its copy when it ends.
     dest = tmp_base() / f"cli-patch-test-stock-{binary_version(binary)}-pid{os.getpid()}"
+    if WINDOWS:  # pwsh's `& path` hands a non-.exe file to ShellExecute, which pops an "Open with" dialog
+        dest = dest.with_name(dest.name.replace(".exe-pid", "-pid") + ".exe")
     shutil.copyfile(orig, dest)
     os.chmod(dest, 0o755)
     side = dest.with_name(dest.name + ".orig")  # tests that diff against the pristine bytes find them
@@ -167,7 +169,7 @@ def _sweep_dead_stock_controls() -> None:
     if WINDOWS:  # os.kill(pid, 0) is TerminateProcess there, not a liveness probe
         return
     for f in tmp_base().glob("cli-patch-test-*-pid*"):
-        m = re.search(r"-pid(\d+)(?:\.orig)?$", f.name)
+        m = re.search(r"-pid(\d+)(?:\.exe)?(?:\.orig)?$", f.name)
         if not m:
             continue
         try:
