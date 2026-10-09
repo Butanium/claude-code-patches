@@ -36,14 +36,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import _bungraph
 from _binpatch import apply_patch, candidate_binaries, protect_backup, read_binary
 
-CHUNK = 1 << 20
+CHUNK = 1 << 16
 SUB = 1 << 12
 
 
 def changed_offsets(a: bytes, b: bytes):
     """Yield the file offset of every differing byte (a and b same length),
-    comparing 1 MiB then 4 KiB chunks so identical regions cost one memcmp each
-    and only the 4 KiB around an edit is walked byte by byte."""
+    comparing 64 KiB then 4 KiB chunks so identical regions cost one memcmp each
+    and only the 4 KiB around an edit is walked byte by byte. Not bigger chunks:
+    glibc hands out each slice of 128 KiB or more as fresh mmap'd pages, and
+    1 MiB slices made this diff 0.34 s of page faults instead of 0.03 s."""
     for start in range(0, len(a), CHUNK):
         if a[start : start + CHUNK] == b[start : start + CHUNK]:
             continue
@@ -99,9 +101,9 @@ def main() -> int:
         if m is not None:
             touched.setdefault(m.index, m)
 
-    buf = bytearray(data)
-    disabled = [m for m in touched.values() if _bungraph.disable_bytecode(buf, m)]
     already = [m for m in touched.values() if m.bytecode[1] == 0]
+    buf = bytearray(data) if len(already) < len(touched) else None  # skip the copy when there is nothing to do
+    disabled = [m for m in touched.values() if buf is not None and _bungraph.disable_bytecode(buf, m)]
     if not disabled:
         print(
             f"zz-bytecode-off: confirmed — {len(touched)} patched module(s) already run from "

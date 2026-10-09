@@ -50,7 +50,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 MARKER = b"hFq3nInt"
 COMMENT = b"/*" + MARKER + b"*/"
@@ -130,7 +130,7 @@ def main() -> int:
     old = data[m.start() : m.end()]
     assert len(new) == len(old), (len(new), len(old))
 
-    patched = data[: m.start()] + new + data[m.end() :]
+    patched = splice(data, m.start(), m.end(), new)
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:

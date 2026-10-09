@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries, read_binary
+from _binpatch import apply_patch, candidate_binaries, read_binary, splice
 
 # Stable, human-readable anchors (no minified identifiers — survive rebuilds).
 SUFFIX = b'},"Failed to send idle notification to team leader"'
@@ -158,7 +158,7 @@ def main() -> int:
 
     new_body = keep + new
     assert len(new_body) == len(body)
-    patched = data[:bs] + new_body + data[be:]
+    patched = splice(data, bs, be, new_body)
     assert len(patched) == len(data)
 
     # Write to a temp copy, verify, then atomically swap in (rename-aside on

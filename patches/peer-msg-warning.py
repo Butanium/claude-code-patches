@@ -76,7 +76,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 _I = JSID.decode()  # inline-able in the f-string pattern below
 
@@ -151,7 +151,7 @@ def main() -> int:
         replacement = core_head + b" " * pad + core_tail
         assert len(replacement) == len(original_seg), (len(replacement), len(original_seg))
 
-        patched = data[: m.start()] + replacement + data[m.end() :]
+        patched = splice(data, m.start(), m.end(), replacement)
         assert len(patched) == len(data)
 
         def _verify(written: bytes) -> None:

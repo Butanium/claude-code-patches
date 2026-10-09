@@ -53,7 +53,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 _TAIL = rb",isReadOnly\((" + JSID + rb")\)\{return typeof \1\.message"
 PATTERN = re.compile(rb"shouldDefer:!0" + _TAIL)
@@ -95,7 +95,7 @@ def main() -> int:
     m = hits[0]
     new = m.group(0).replace(b"shouldDefer:!0", b"shouldDefer:!1")
     assert len(new) == len(m.group(0))
-    patched = data[: m.start()] + new + data[m.end() :]
+    patched = splice(data, m.start(), m.end(), new)
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:

@@ -116,8 +116,6 @@ apply_all() {
         || echo "CLI patches$label: apply_patches.py exited $? — which patches are active is unknown"
 }
 
-apply_all
-
 # newest_binary DIR: the newest regular file in DIR that is not a backup or a
 # patch temp — the same rule _binpatch.candidate_binaries() uses for versions/.
 newest_binary() {
@@ -131,6 +129,7 @@ newest_binary() {
 }
 
 IFS=':' read -r -a _targets <<< "${CLAUDE_CLI_PATCH_EXTRA_TARGETS:-}"
+_bins=()
 for _t in ${_targets+"${_targets[@]}"}; do
     [ -n "$_t" ] || continue
     case "$_t" in
@@ -151,8 +150,32 @@ for _t in ${_targets+"${_targets[@]}"}; do
         echo "CLAUDE_CLI_PATCH_EXTRA_TARGETS entry is neither a file nor a directory: $_t"
         continue
     fi
-    ( apply_all "$_bin" )
+    _bins+=("$_bin")
 done
+
+# The installed binary and the extra targets are separate files, each with its
+# own `.orig` and cache record, so their passes run in parallel (a fresh binary
+# takes ~15 s). Each pass's output is buffered and printed in order afterwards so
+# the passes' lines and failure blocks don't interleave.
+_out=""
+[ "${#_bins[@]}" -gt 0 ] && _out="$(mktemp -d 2>/dev/null)"
+if [ -z "$_out" ]; then
+    apply_all
+    for _bin in ${_bins+"${_bins[@]}"}; do ( apply_all "$_bin" ); done
+else
+    trap 'rm -rf "$_out"' EXIT
+    apply_all >"$_out/0.out" 2>"$_out/0.err" &
+    _n=0
+    for _bin in "${_bins[@]}"; do
+        _n=$((_n + 1))
+        ( apply_all "$_bin" ) >"$_out/$_n.out" 2>"$_out/$_n.err" &
+    done
+    wait
+    for ((_i = 0; _i <= _n; _i++)); do
+        cat "$_out/$_i.err" >&2
+        cat "$_out/$_i.out"
+    done
+fi
 
 # Opt-in: prove the patches by behavior, not by anchor. When the live binary is
 # in a state no suite run has seen yet (a patch just applied, or claude updated),

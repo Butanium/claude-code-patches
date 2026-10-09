@@ -90,7 +90,8 @@ elsewhere — the Claude Desktop app bundles its own at
 `CLAUDE_CLI_PATCH_EXTRA_TARGETS` (colon-separated; a file, or a directory whose
 newest non-backup file is taken; relative entries resolve against
 `~/.claude`). Each extra target gets the full patch pass and its own `.orig`
-backup next to it. A single one-off target instead: `CLAUDE_CLI_PATCH_TARGET=<file>
+backup next to it; the passes run in parallel with the installed binary's, and
+their output is printed in order once all are done. A single one-off target instead: `CLAUDE_CLI_PATCH_TARGET=<file>
 bash run_cli_patches.sh`.
 
 To restore a pristine binary: `~/.local/share/claude/versions/<ver>.orig` sits
@@ -193,7 +194,9 @@ The contract, enforced by `run_cli_patches.sh`:
    in the runner's batch pass it returns the copy carrying the earlier patches'
    edits. A patch that reads the file itself still works (the runner writes the
    batch out and re-runs it against the file), but costs an extra full write,
-   and `lint_patches.py` flags it.
+   and `lint_patches.py` flags it. Build the result with
+   `splice(data, start, end, new)`, not `data[:start] + new + data[end:]`: one
+   copy of the binary instead of three, ~0.3 s less per patch.
 5. Add `tests/test_<name>.py` that observes the change from a fresh process, and
    run it with `--control` so it is shown to fail on the stock binary.
 

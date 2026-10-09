@@ -68,7 +68,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 FLAG = b'"tengu_breezy_crescent"'
 # group 1: the optional `Nt()||` diskless disjunct (2.1.289+); group 2: the flag getter.
@@ -136,7 +136,7 @@ def main() -> int:
 
     m = hits[0]
     new = replacement(m)
-    patched = data[: m.start()] + new + data[m.end() :]
+    patched = splice(data, m.start(), m.end(), new)
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:

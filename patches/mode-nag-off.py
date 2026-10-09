@@ -62,7 +62,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries, read_binary
+from _binpatch import apply_patch, candidate_binaries, read_binary, splice
 
 MARKER = b"[mode-nag-off]"
 
@@ -149,7 +149,7 @@ def main() -> int:
             )
             return 1
         m = matches[0]
-        buf = buf[: m.start()] + build_replacement(m) + buf[m.end() :]
+        buf = splice(buf, m.start(), m.end(), build_replacement(m))
         applied.append(name)
 
     assert len(buf) == len(data)

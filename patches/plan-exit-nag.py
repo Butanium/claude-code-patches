@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import apply_patch, candidate_binaries, read_binary
+from _binpatch import apply_patch, candidate_binaries, read_binary, splice
 
 # Anchor ONLY on the arrow head + the `planExists` ternary — all stable
 # identifiers (`plan_mode_exit`, `e.planExists`, `e.planFilePath`) and the stable
@@ -113,7 +113,7 @@ def main() -> int:
     m = matches[0]
     rep = build_replacement(m)
 
-    patched = data[: m.start()] + rep + data[m.end() :]
+    patched = splice(data, m.start(), m.end(), rep)
     assert len(patched) == len(data)
 
     # Write to a temp copy, verify, then atomically swap in (rename-aside on

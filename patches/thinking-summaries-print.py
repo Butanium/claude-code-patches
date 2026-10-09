@@ -58,7 +58,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 ANCHOR = b'{explicitDisplay:'
 # Groups: 1-4 the destructured parameter names, 5 the settings getter, 6 the
@@ -131,7 +131,7 @@ def main() -> int:
 
     m = matches[0]
     replacement = build_replacement(m)
-    patched = data[: m.start()] + replacement + data[m.end():]
+    patched = splice(data, m.start(), m.end(), replacement)
     if len(patched) != len(data):
         print("length changed after replace — refusing to patch", file=sys.stderr)
         return 1

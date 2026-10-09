@@ -69,7 +69,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 # Stable property name that survives identifier renames. It appears at the two
 # tool call sites (Bash, PowerShell) and in the `l6t({...canAutoBackground:r})`
@@ -140,7 +140,7 @@ def main() -> int:
     s, e = sites[0]
     old = data[s:e]
     new = replacement(e - s)
-    patched = data[:s] + new + data[e:]
+    patched = splice(data, s, e, new)
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:
