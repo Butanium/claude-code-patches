@@ -30,8 +30,14 @@ What still arrives:
 - Interim notifications of an agent started by another agent (a subagent or an
   in-process teammate). That notification is what wakes the owner, so it is kept
   (with the shorter note).
-- Anything the agent sends with SendMessage. An agent that ends a turn with a
-  plain-text question while its job runs is not heard until it stops for good.
+- Anything the agent sends with SendMessage.
+
+What is lost: everything an agent says by ending a turn in plain text while a
+child of its own is alive. "Interim" only means "a background child is still
+running", not "the agent isn't done". An agent that finishes its work but
+leaves a child behind (a dev server, a persistent Monitor, an upload it doesn't
+wait for) sends only interim notifications, so its completion report is dropped
+too, and the session hears from it only through SendMessage.
 
 Task state is untouched: the notified stamp (`r3`) and the keepalive release
 (`a_t`) run before this code, and nothing after the enqueue touches the
