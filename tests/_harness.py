@@ -491,15 +491,28 @@ def _psq(s: str) -> str:
 # ----------------------------------------------------------------------------- mock Messages API
 
 
-def sse_message(blocks: list[dict], stop_reason: str = "end_turn") -> bytes:
+def stop_reason_for(blocks: list[dict]) -> str:
+    return "tool_use" if any(b["type"] == "tool_use" for b in blocks) else "end_turn"
+
+
+def sse_message(blocks: list[dict], stop_reason: str | None = None) -> bytes:
     """A complete streamed Messages API response whose content is `blocks`
-    (each {"type": "text", "text": ...} or {"type": "thinking", "thinking": ...})."""
+    (each {"type": "text", "text": ...}, {"type": "thinking", "thinking": ...} or
+    {"type": "tool_use", "id": ..., "name": ..., "input": {...}})."""
+    stop_reason = stop_reason or stop_reason_for(blocks)
     ev = [("message_start", {"type": "message_start", "message": {
         "id": "msg_mock", "type": "message", "role": "assistant", "model": "claude-mock",
         "content": [], "stop_reason": None, "stop_sequence": None,
         "usage": {"input_tokens": 10, "output_tokens": 1}}})]
     for i, b in enumerate(blocks):
-        if b["type"] == "thinking":
+        if b["type"] == "tool_use":
+            ev += [("content_block_start", {"type": "content_block_start", "index": i,
+                                            "content_block": {"type": "tool_use", "id": b["id"], "name": b["name"],
+                                                              "input": {}}}),
+                   ("content_block_delta", {"type": "content_block_delta", "index": i,
+                                            "delta": {"type": "input_json_delta",
+                                                      "partial_json": json.dumps(b["input"])}})]
+        elif b["type"] == "thinking":
             ev += [("content_block_start", {"type": "content_block_start", "index": i,
                                             "content_block": {"type": "thinking", "thinking": "", "signature": ""}}),
                    ("content_block_delta", {"type": "content_block_delta", "index": i,
@@ -554,7 +567,7 @@ class MockMessagesAPI:
                     return self._send(200, "text/event-stream", sse_message(blocks))
                 msg = {"id": "msg_mock", "type": "message", "role": "assistant", "model": "claude-mock",
                        "content": [({"signature": "bW9jaw==", **b} if b["type"] == "thinking" else b) for b in blocks],
-                       "stop_reason": "end_turn", "stop_sequence": None,
+                       "stop_reason": stop_reason_for(blocks), "stop_sequence": None,
                        "usage": {"input_tokens": 10, "output_tokens": 5}}
                 self._send(200, "application/json", json.dumps(msg).encode())
 

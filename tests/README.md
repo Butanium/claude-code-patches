@@ -66,6 +66,7 @@ read one trivial `-p` turn.
 | auto-background | `sleep 8; …` with a 3 s timeout is backgrounded, not killed with exit 143 | all with Bash |
 | task-nag | 14 Bash turns on haiku with `CLAUDE_CODE_TODO_REMINDER_MODE=baseline` produce no task_reminder | all |
 | thinking-only-nag | mock API serves a thinking-only turn; no retry request carries the nag | all |
+| interim-task-notif | stream-json session on the mock API: a background agent starts a background Bash job and ends its turn; no lead request carries its interim result, and the final one arrives | all with Bash |
 | thinking-summaries-print | with `showThinkingSummaries: true`, a `-p --output-format text` turn on haiku sends `thinking.display: "summarized"` and its transcript thinking block has text (stock: `"omitted"`, empty block); a stream-json turn against the mock API sends `"summarized"` (stock: no display) | all |
 | zz-bytecode-off | structural: every module that differs from `.orig` has its bytecode length zeroed | all |
 | idle-notif, peer-msg-warning, shutdown-reason | one lead + one pane teammate | tmux (psmux >= 3.3.8 on Windows) |
