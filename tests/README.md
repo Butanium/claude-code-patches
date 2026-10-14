@@ -48,7 +48,11 @@ started from inside a Claude session doesn't inherit that session's settings).
   interactive tests: teams, shift+tab mode cycling, Escape.
 - **A mock Messages API** (`_harness.MockMessagesAPI`) for behavior a real model
   won't produce on demand. For example, `thinking-only-nag` needs a turn that
-  ends with a thinking block and no text. These runs spend no tokens.
+  ends with a thinking block and no text. These runs spend no tokens. The
+  reply function can return `tool_use` blocks, so a scripted multi-agent run
+  (a lead spawning an agent that starts a background job) is deterministic;
+  `test_interim_task_notif.py` tells lead and agent requests apart by a marker
+  in each one's first user message.
 
 Shared sessions (`_scenarios.py`) run once per binary per `run_tests.py`
 invocation: idle-notif, shutdown-reason and peer-msg-warning all read one lead
