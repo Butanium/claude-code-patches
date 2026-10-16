@@ -1,0 +1,6 @@
+{
+  "name": "keystroke",
+  "version": "0.1.0",
+  "description": "/keystroke: compose replies through type/backspace/send tool calls, a few characters per call; the reply still lands as a normal assistant message",
+  "types": "./types/index.d.ts"
+}

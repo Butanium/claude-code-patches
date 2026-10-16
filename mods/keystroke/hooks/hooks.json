@@ -1,0 +1,1 @@
+{ "description": "keystroke", "modules": ["./register.tsx"] }

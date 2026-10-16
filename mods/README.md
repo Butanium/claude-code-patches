@@ -8,6 +8,7 @@ behavior through documented hook events instead of editing the binary:
 | `cli-patch-mods/` | reproduces 9 of the byte patches (below) |
 | `own-bash-edit-notice/` | cuts the "changed on disk" notice to one line when the session's own Bash command made the change ([README](own-bash-edit-notice/README.md)) |
 | `session-autocompact/` | `/session-autocompact on`: auto-compact one session while the global setting stays off ([README](session-autocompact/README.md)) |
+| `keystroke/` | `/keystroke on`: the model composes each reply through `type`/`backspace`/`send` tool calls, a few characters per call; the keystroke rows are hidden, the draft is drawn above the prompt, and the reply lands as a normal assistant message ([README](keystroke/README.md)) |
 
 ## Loading them
 

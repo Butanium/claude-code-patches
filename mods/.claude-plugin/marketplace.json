@@ -1,6 +1,8 @@
 {
   "name": "claude-code-patches",
-  "owner": {"name": "claude-code-patches"},
+  "owner": {
+    "name": "claude-code-patches"
+  },
   "plugins": [
     {
       "name": "cli-patch-mods",
@@ -16,6 +18,11 @@
       "name": "session-autocompact",
       "source": "./session-autocompact",
       "description": "/session-autocompact: auto-compact this session only, between turns, once context passes a threshold"
+    },
+    {
+      "name": "keystroke",
+      "source": "./keystroke",
+      "description": "/keystroke: compose replies through type/backspace/send tool calls, a few characters per call; the reply still lands as a normal assistant message"
     }
   ]
 }
