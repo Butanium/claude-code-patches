@@ -65,11 +65,11 @@ One hooks module, `hooks/register.tsx`:
 ## Cost and speed
 
 Every character is one model request against the session's cached prefix plus two
-transcript rows (about 60 tokens). Measured with Sonnet 5.5 on 2.1.293: around 1.5 s per
-character once the model types one per response, so a 50-character reply takes about
-two minutes and adds roughly 3k tokens to the context. That is the experiment, not a
-flaw, but it rules out the mode for long replies; `/keystroke 5` or more is the usable
-setting for anything beyond a sentence.
+transcript rows (about 60 tokens). Measured with Sonnet 5.5 at medium effort on 2.1.293,
+thinking between keystrokes: about 3 s per character (17 characters in 58 s, 41 in two
+minutes), so a 50-character reply takes two to three minutes and adds roughly 3k tokens
+to the context. That is the experiment, not a flaw, but it rules out chunk 1 for long
+replies; `/keystroke 5` or more is the usable setting for anything beyond a sentence.
 
 ## Tests
 
