@@ -94,7 +94,8 @@ def build(data: bytes) -> bytes:
         raise RuntimeError(f"expected 1 Agent input destructure before spawnTeammate, found {len(ds)}")
     iso, raw_cwd = ds[0].group(1), ds[0].group(2)
     # the handler copies the destructured cwd into a working variable: `,oe=bt,`
-    cm = re.search(rb",(" + JSID + rb")=" + re.escape(raw_cwd) + rb",", data[ds[0].end() : sp])
+    # (2.1.299: last binding of a `let` list, `,ne=ft;`)
+    cm = re.search(rb",(" + JSID + rb")=" + re.escape(raw_cwd) + rb"[,;]", data[ds[0].end() : sp])
     if not cm:
         raise RuntimeError("could not find the working copy of the cwd variable")
     cwd = cm.group(1)

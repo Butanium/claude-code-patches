@@ -24,6 +24,11 @@ The edit skips the enqueue for the interim kind when the owner is not a task:
     $t=s==="completed"&&VVr(xe)?"<shorter interim note>":"A task-notification fires ...",zt=...;
     s==="completed"&&VVr(xe)&&!w.get(Ue)||/*marker*/ea({value:...
 
+Since 2.1.299 the condition is bound once, right after the owner check
+(`pt=s==="completed"&&WZr(Be),` … `Yt=pt?"This agent stopped…"`), and the guard
+reuses that variable: `pt&&!w.get(tt)||/*marker*/rl({value:...`. The interim
+note also grew to two sentences, which pays for the edit on its own.
+
 What still arrives:
 - The notification an agent sends when it stops with no background work left,
   and failure / stop notifications. These are byte-identical to stock.
@@ -79,17 +84,36 @@ SHORT_NOTE = (
     b" later; the result below may be interim."
 )
 
-SITE = re.compile(
+_HEAD = (
     rb"(?P<ne>" + JSID + rb")=" + JSID + rb"\(\{ownerAgentId:(?P<ue>" + JSID + rb"),keepaliveReason:.{0,80}?"
     rb",taskRegistry:(?P<reg>" + JSID + rb")\}\);.{0,600}?"
-    rb"let (?P<ye>" + JSID + rb")=(?P=ue)===void 0\|\|(?P=ne)===(?P=ue),.{0,1500}?"
-    rb",(?P<t>" + JSID + rb")=(?P<cond>" + JSID + rb'==="completed"&&' + JSID + rb"\(" + JSID + rb"\))\?"
+    rb"let (?P<ye>" + JSID + rb")=(?P=ue)===void 0\|\|(?P=ne)===(?P=ue),"
+)
+_NOTE = (
     rb'"(?P<note>' + re.escape(NOTE_HEAD) + rb'[^"]*)"'
-    rb':"A task-notification fires each time[^"]*",.{0,800}?\);'
+    rb':"A task-notification fires each time[^"]*",.{0,1500}?\);'
+)
+_CALL = (
     rb"(?P<call>" + JSID + rb"\(\{value:(?P=ye)\?" + JSID + rb":" + JSID + rb"\(" + JSID + rb"\),"
-    rb'mode:"task-notification",skipAttachments:!0,priority:' + JSID + rb",agentId:(?P=ne),)",
+    rb'mode:"task-notification",skipAttachments:!0,priority:' + JSID + rb",agentId:(?P=ne),)"
+)
+# 2.1.299: the interim condition is bound to a variable right after the owner
+# check (`pt=s==="completed"&&WZr(Be),`) and the note is `Yt=pt?"…"`. The guard
+# then reuses that variable. Tried first.
+SITE_HOISTED = re.compile(
+    _HEAD
+    + rb"(?P<cond>" + JSID + rb")=" + JSID + rb'==="completed"&&' + JSID + rb"\(" + JSID + rb"\),.{0,1500}?"
+    rb",(?P<t>" + JSID + rb")=(?P=cond)\?" + _NOTE + _CALL,
     re.DOTALL,
 )
+# ≤ 2.1.295: the condition is inline in the note's ternary.
+SITE_INLINE = re.compile(
+    _HEAD + rb".{0,1500}?"
+    rb",(?P<t>" + JSID + rb")=(?P<cond>" + JSID + rb'==="completed"&&' + JSID + rb"\(" + JSID + rb"\))\?"
+    + _NOTE + _CALL,
+    re.DOTALL,
+)
+SITES = (SITE_HOISTED, SITE_INLINE)
 
 
 def build(m: re.Match) -> bytes:
@@ -112,7 +136,7 @@ def main() -> int:
         if MARKER in data:
             print(f"interim-task-notif: confirmed already patched ({binp})", file=sys.stderr)
             return 0
-        matches = list(SITE.finditer(data))
+        matches = next((ms for ms in (list(s.finditer(data)) for s in SITES) if ms), [])
         if not matches:
             continue
         if len(matches) != 1:
@@ -145,10 +169,11 @@ def main() -> int:
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:
-        if len(written) != len(data) or MARKER not in written or SITE.search(written) is not None:
+        still = any(s.search(written) is not None for s in SITES)
+        if len(written) != len(data) or MARKER not in written or still:
             raise RuntimeError(
                 f"post-write verification failed (len={len(written)} want={len(data)}, "
-                f"marker={MARKER in written}, site_still_present={SITE.search(written) is not None})"
+                f"marker={MARKER in written}, site_still_present={still})"
                 f" — live binary untouched"
             )
 
