@@ -357,10 +357,11 @@ class Sandbox:
                               env=self.env())
 
     def start_interactive(self, args: list[str], *, env: dict[str, str] | None = None,
-                          session: str = "lead", timeout: float = 120) -> None:
+                          session: str = "lead", timeout: float = 120, cwd: Path | None = None) -> bool:
         """Launch the binary in a detached tmux session of this sandbox's private
         server and wait for the prompt. Panes a lead spawns for teammates open in
-        the same server and inherit the same scrubbed environment."""
+        the same server and inherit the same scrubbed environment. Returns whether
+        a folder-trust prompt had to be accepted on the way."""
         full_env = self.env(**(env or {}))
         if WINDOWS:
             cmd = "& " + " ".join(_psq(x) for x in [str(self.binary), *args]) + "; exit"
@@ -370,7 +371,7 @@ class Sandbox:
         for k in ("CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER", "OTEL_LOG_RAW_API_BODIES", *(env or {})):
             eflags += ["-e", f"{k}={full_env[k]}"]
         r = subprocess.run(["tmux", "-L", self.socket, "new-session", "-d", "-s", session,
-                            "-x", "220", "-y", "50", "-c", str(self.cwd), *eflags, cmd],
+                            "-x", "220", "-y", "50", "-c", str(cwd or self.cwd), *eflags, cmd],
                            capture_output=True, text=True, env=full_env)
         if r.returncode:
             raise RuntimeError(f"tmux new-session failed: {r.stderr}")
@@ -381,16 +382,18 @@ class Sandbox:
         if pid := self.tmux("display-message", "-p", "-t", session, "#{pane_id}").stdout.strip():
             self._session_panes[session] = pid
         t0 = time.time()
+        saw_trust = False
         while time.time() - t0 < timeout:
             txt = re.sub(r"\s", "", self.capture(session))
             if "Itrustthisfolder" in txt:
+                saw_trust = True
                 self.keys("Down", "Enter", target=session)
             elif "Yes,Iaccept" in txt:
                 self.keys("Down", "Enter", target=session)
             # The idle title shows before the input box accepts keys; keystrokes
             # sent in that window vanish, so give the TUI a settling margin.
             elif time.time() - t0 > 12 and self.pane_state(session) == "idle":
-                return
+                return saw_trust
             time.sleep(0.5)
         raise RuntimeError(f"{session}: never reached the prompt:\n{self.capture(session)[-1500:]}")
 
