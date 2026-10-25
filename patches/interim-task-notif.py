@@ -29,6 +29,12 @@ Since 2.1.299 the condition is bound once, right after the owner check
 reuses that variable: `pt&&!w.get(tt)||/*marker*/rl({value:...`. The interim
 note also grew to two sentences, which pays for the edit on its own.
 
+Since 2.1.304 the enqueue is the body of an arrow that runs at once or is
+deferred while a hook holds the main session (`let vo=()=>Ya({...}),dn=...,
+wo=()=>dn()?eW(wo):vo();wo()`). The guard goes at the head of that body:
+`let vo=()=>mt&&!w.get(Ye)||/*marker*/Ya({value:...`, so a deferred interim
+notification is dropped when its turn comes. Nothing reads `vo`'s return value.
+
 What still arrives:
 - The notification an agent sends when it stops with no background work left,
   and failure / stop notifications. These are byte-identical to stock.
@@ -89,13 +95,16 @@ _HEAD = (
     rb",taskRegistry:(?P<reg>" + JSID + rb")\}\);.{0,600}?"
     rb"let (?P<ye>" + JSID + rb")=(?P=ue)===void 0\|\|(?P=ne)===(?P=ue),"
 )
+# ≤ 2.1.299 the call is a statement after `);`. Since 2.1.304 it is the body of
+# an arrow (`let vo=()=>Ya({...})`, run now or deferred by `wo()`), and a
+# `...hook&&{scheduledByPlugin:…}` spread sits before skipAttachments.
 _NOTE = (
     rb'"(?P<note>' + re.escape(NOTE_HEAD) + rb'[^"]*)"'
-    rb':"A task-notification fires each time[^"]*",.{0,1500}?\);'
+    rb':"A task-notification fires each time[^"]*",.{0,1500}?(?:\);|;let ' + JSID + rb"=\(\)=>)"
 )
 _CALL = (
     rb"(?P<call>" + JSID + rb"\(\{value:(?P=ye)\?" + JSID + rb":" + JSID + rb"\(" + JSID + rb"\),"
-    rb'mode:"task-notification",skipAttachments:!0,priority:' + JSID + rb",agentId:(?P=ne),)"
+    rb'mode:"task-notification",[^;]{0,300}?skipAttachments:!0,priority:' + JSID + rb",agentId:(?P=ne),)"
 )
 # 2.1.299: the interim condition is bound to a variable right after the owner
 # check (`pt=s==="completed"&&WZr(Be),`) and the note is `Yt=pt?"…"`. The guard

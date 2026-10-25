@@ -22,9 +22,15 @@ stopping for clarifying questions; run `git status` before anything that could
 discard uncommitted work) and `d` is the auto-mode-classifier consent flow
 (batch held asks, bold the blocking item, "approve? (or 'all of them')").
 
+Since 2.1.308 the steerOnly branch is `"While auto mode is active:"+h+(bashFirst
+!== false ? `\n\n${p}` : "")` and the third is `o+h+d+(...)`, where `h` is a new
+"finish the job, fix what the task exposed, don't end on an offer" paragraph
+(`e.finishExposedWork`). It goes with the rest of the case.
+
 `auto_mode_exit` is the exit side: "## Exited Auto Mode / You have exited auto
 mode." plus, when `bashFirst` is set, " Resume using the dedicated tools for
-file reads, searches, and edits."
+file reads, searches, and edits." (and since 2.1.308, when `finishExposedWork`
+is set, a sentence saying that guidance no longer applies).
 
 Both renderers are gated to `return[]` here, which is the shape the sibling
 `case"attention_budget":return[];` already uses for "render nothing". The
@@ -73,11 +79,15 @@ MARKER = b"[mode-nag-off]"
 # loosely and thrown away rather than re-emitted.
 RETURN_EXPR = rb"([$\w]+\(\[[$\w]+\(\{content:[$\w]+,isMeta:!0\}\)\]\))"
 
+# The entry tail between the steerOnly text and the last branch changed in
+# 2.1.308: `…active:\n\n${q}`:s+h+(e.bashFirst?…)` became
+# `…active:"+h+(e.bashFirst!==!1?…):s+h+y+(e.bashFirst?…)`. Both shapes match;
+# `[^;]` keeps the match inside the one `K=…;` statement.
 EDITS = (
     (
         "entry",
         re.compile(
-            rb"While auto mode is active:\n\n\$\{[$\w]+\}`:[$\w]+\+[$\w]+\+"
+            rb"While auto mode is active:[^;]{0,300}?"
             rb"\(e\.bashFirst\?`\n\n\$\{[$\w]+\}`:\"\"\);return " + RETURN_EXPR + rb"\}"
         ),
         "the 'While bypass permissions mode is active:' / 'While auto mode is active:' reminders",
@@ -87,7 +97,8 @@ EDITS = (
         re.compile(
             rb"You have exited auto mode\. The user may now want to interact more "
             rb"directly\. You should ask clarifying questions when the approach is "
-            rb"ambiguous rather than making assumptions\.\$\{[$\w]+\}`;return "
+            # one interpolation ≤ 2.1.304 (`${n}`), two since 2.1.308 (`${n}${r}`)
+            rb"ambiguous rather than making assumptions\.(?:\$\{[$\w]+\})+`;return "
             + RETURN_EXPR
             + rb"\}"
         ),
