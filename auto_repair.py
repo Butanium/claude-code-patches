@@ -6,8 +6,9 @@ with the extra target binaries as arguments; the installed binary is found the u
 way. It reads each binary's pass record (the `failed` list apply_patches.py saves) and,
 for failures no repair session was started for yet, starts one interactive `claude` in
 a detached tmux session whose first prompt carries the failure messages. That session
-closes itself, without notifying anyone, once every fix is tested and committed;
-otherwise it sends its question through ntfy and waits at its prompt for an answer.
+closes itself, without notifying anyone, after a routine repair (every fix tested and
+committed, nothing to flag); otherwise it sends its question or flag through ntfy and
+waits at its prompt for an answer.
 
 One attempt per (binary basename, patch). The basename is the version on both install
 layouts (`versions/2.1.293`, `remote/ccd-cli/2.1.308-<hash>`), so a patch that breaks
@@ -17,7 +18,7 @@ session is still running, no second one starts; failures that are new meanwhile 
 for it to end.
 
 Environment (all optional):
-  CLI_PATCH_REPAIR_NTFY_TOPIC    ntfy.sh topic the session sends its questions to; without
+  CLI_PATCH_REPAIR_NTFY_TOPIC    ntfy.sh topic for the session's questions and flags; without
                                  it the session leaves them as its last message
   CLAUDE_CLI_PATCH_REPAIR_ARGS   arguments for `claude`, shell-quoted
                                  (default: --permission-mode bypassPermissions; the
@@ -125,24 +126,26 @@ the test harness, not by restarting yourself.
 change, following the conventions your instructions give for this repo (pushing and bumping a \
 parent repo's submodule pointer included).
 
-## When to stop and ask
+## When to notify and wait
 
 Ask instead of guessing whenever the fix is not obvious: the behavior the patch changes was \
 removed or redesigned upstream, the anchor matches more than one plausible site, the byte budget \
 does not fit without changing what the patch does, or the behavior test cannot run or fails in a \
 way you cannot explain. A patch that applies but whose behavior test you could not run is not \
-fixed; ask about it too.
+fixed; ask about it too. The same goes for a fix that works but leaves something worth flagging: \
+part of the change the tests don't cover, behavior that now differs from before, or something \
+odd you found along the way.
 
-To ask, send the question {notify}, naming tmux session `{tname}` so it can be attached, then end \
-your turn. This session stays open at its prompt and the answer will arrive here; do not close it. \
-Fix what you can before asking, and put every open question in one message.
+Send the question or the flag {notify}, naming tmux session `{tname}` so it can be attached, then \
+end your turn. This session stays open at its prompt and the answer will arrive here; do not \
+close it. Fix what you can first, and put everything in one message.
 
-## When everything is fixed
+## When the repair was routine
 
-Only when every failure above applies and its behavior test passes on both arms: commit, write a \
-short summary of what changed as a message here, and then close this session with \
-`tmux kill-session -t '{tname}'` (the transcript is kept). Send no notification on success: a \
-repair that worked needs nobody's attention, and the commits record it.
+When every failure above applies, its behavior test passes on both arms, and nothing is left to \
+flag: commit, write a short summary of what changed as a message here, and then close this \
+session with `tmux kill-session -t '{tname}'` (the transcript is kept). Send no notification: a \
+routine repair needs nobody's attention, and the commits record it.
 """
 
 

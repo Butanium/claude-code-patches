@@ -179,9 +179,9 @@ fi
 
 # Opt-in: when a patch fails and no repair was attempted for it on this claude
 # version, start an interactive Claude session in a detached tmux session to
-# re-derive it. It closes itself silently when the fixes are tested and
-# committed, or asks through ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC and waits at
-# its prompt when they aren't obvious. See auto_repair.py for the knobs.
+# re-derive it. It closes itself silently after a routine repair, or notifies
+# ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC and waits at its prompt when a fix isn't
+# obvious or leaves something to flag. See auto_repair.py for the knobs.
 if [ "${CLAUDE_CLI_PATCH_AUTOREPAIR:-}" = "1" ]; then
     "$PYTHON" -B "$HERE/auto_repair.py" ${_bins+"${_bins[@]}"} 2>&1
 fi
