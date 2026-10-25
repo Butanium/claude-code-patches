@@ -6,8 +6,8 @@ with the extra target binaries as arguments; the installed binary is found the u
 way. It reads each binary's pass record (the `failed` list apply_patches.py saves) and,
 for failures no repair session was started for yet, starts one interactive `claude` in
 a detached tmux session whose first prompt carries the failure messages. That session
-reports through ntfy and either closes itself once every fix is tested and committed,
-or asks its question and waits at its prompt for an answer.
+closes itself, without notifying anyone, once every fix is tested and committed;
+otherwise it sends its question through ntfy and waits at its prompt for an answer.
 
 One attempt per (binary basename, patch). The basename is the version on both install
 layouts (`versions/2.1.293`, `remote/ccd-cli/2.1.308-<hash>`), so a patch that breaks
@@ -17,8 +17,8 @@ session is still running, no second one starts; failures that are new meanwhile 
 for it to end.
 
 Environment (all optional):
-  CLI_PATCH_REPAIR_NTFY_TOPIC    ntfy.sh topic the session reports to; without it the
-                                 session leaves its report as its last message
+  CLI_PATCH_REPAIR_NTFY_TOPIC    ntfy.sh topic the session sends its questions to; without
+                                 it the session leaves them as its last message
   CLAUDE_CLI_PATCH_REPAIR_ARGS   arguments for `claude`, shell-quoted
                                  (default: --permission-mode bypassPermissions; the
                                  session is unattended, so it must never prompt)
@@ -139,10 +139,10 @@ Fix what you can before asking, and put every open question in one message.
 
 ## When everything is fixed
 
-Only when every failure above applies and its behavior test passes on both arms: commit, send a \
-short summary {notify}, and then close this session with `tmux kill-session -t '{tname}'` (the \
-transcript is kept). Say in the summary that a claude process that is already running keeps the \
-old code until it restarts, which for the Desktop app's bundled CLI means restarting the app.
+Only when every failure above applies and its behavior test passes on both arms: commit, write a \
+short summary of what changed as a message here, and then close this session with \
+`tmux kill-session -t '{tname}'` (the transcript is kept). Send no notification on success: a \
+repair that worked needs nobody's attention, and the commits record it.
 """
 
 

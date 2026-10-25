@@ -122,9 +122,9 @@ is usually busy with something else. Set `CLAUDE_CLI_PATCH_AUTOREPAIR=1` and the
 runner starts a repair session itself (`auto_repair.py`, needs tmux): an
 interactive `claude` in a detached tmux session whose first prompt carries the
 failure messages and the repair procedure. When every fix passes its behavior
-test, the session commits, sends a summary to
-`ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC` and closes itself. When a fix is not
-obvious, it sends its question there and waits at its prompt for the answer.
+test, the session commits and closes itself without notifying anyone. When a
+fix is not obvious, it sends its question to
+`ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC` and waits at its prompt for the answer.
 There is one attempt per patch per Claude Code version, and one repair
 session at a time. Sessions that start meanwhile get a line naming the repair
 session instead of starting their own. The session runs unattended, so it is
