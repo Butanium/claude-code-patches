@@ -185,7 +185,8 @@ def decide(failures: list[tuple[Path, dict]], d: Path, dry_run: bool) -> int:
         if k in attempts:
             att = attempts[k]
             earlier.setdefault((att.get("tmux"), att.get("when"), att.get("error")), set()).add(f["name"])
-    running = [t for t, _, _ in earlier if have_tmux and tmux_alive(t)]
+    # Any repair session still open blocks a new one, including one started for an older version.
+    running = [t for t in dict.fromkeys(a.get("tmux") for a in attempts.values()) if have_tmux and tmux_alive(t)]
     for (t, when, err), names in earlier.items():
         if err:
             what = f"starting a repair session at {when} failed ({err}); still failing"
