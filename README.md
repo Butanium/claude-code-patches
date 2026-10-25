@@ -117,6 +117,22 @@ sandboxed session against an explicit binary path, with an optional stock
 control arm. Set `CLAUDE_CLI_PATCH_TESTS=1` and the runner starts the suite in
 the background whenever the patched binary changes.
 
+A failure notice only reaches whichever session starts next, and that session
+is usually busy with something else. Set `CLAUDE_CLI_PATCH_AUTOREPAIR=1` and the
+runner starts a repair session itself (`auto_repair.py`, needs tmux): an
+interactive `claude` in a detached tmux session whose first prompt carries the
+failure messages and the repair procedure. When every fix passes its behavior
+test, the session commits, sends a summary to
+`ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC` and closes itself. When a fix is not
+obvious, it sends its question there and waits at its prompt for the answer.
+There is one attempt per patch per Claude Code version, and one repair
+session at a time. Sessions that start meanwhile get a line naming the repair
+session instead of starting their own. The session runs unattended, so it is
+launched with `--permission-mode bypassPermissions`; set
+`CLAUDE_CLI_PATCH_REPAIR_ARGS` to change that. `CLAUDE_CLI_PATCH_REPAIR_CWD`
+sets the directory it starts in (default: this repo). Run
+`python3 auto_repair.py --dry-run` to print the command and prompt it would use.
+
 ## How it works
 
 The `claude` binary is a Bun single-file executable: the JavaScript source is

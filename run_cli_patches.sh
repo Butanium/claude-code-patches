@@ -177,6 +177,15 @@ else
     done
 fi
 
+# Opt-in: when a patch fails and no repair was attempted for it on this claude
+# version, start an interactive Claude session in a detached tmux session to
+# re-derive it. It reports through ntfy.sh/$CLI_PATCH_REPAIR_NTFY_TOPIC, closing
+# itself when the fixes are tested and committed, or asking and waiting at its
+# prompt when they aren't obvious. See auto_repair.py for the knobs.
+if [ "${CLAUDE_CLI_PATCH_AUTOREPAIR:-}" = "1" ]; then
+    "$PYTHON" -B "$HERE/auto_repair.py" ${_bins+"${_bins[@]}"} 2>&1
+fi
+
 # Opt-in: prove the patches by behavior, not by anchor. When the live binary is
 # in a state no suite run has seen yet (a patch just applied, or claude updated),
 # start tests/run_tests.py in the background; it posts a pass/fail table to

@@ -77,6 +77,11 @@ def run_other(path: Path) -> tuple[int, str]:
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "claude-cli-patches"
 
 
+def cache_path(binp: Path) -> Path:
+    """The pass record for this binary. auto_repair.py reads its `failed` list."""
+    return CACHE_DIR / f"pass-{hashlib.sha1(str(binp).encode()).hexdigest()[:16]}.json"
+
+
 def fingerprint(binp: Path, patches: list[Path], label: str, lint: bool) -> str:
     """What a pass's outcome depends on: the binary and its `.orig` backup, the patch
     files and everything next to them (a private patch dir's own helpers), and this
@@ -102,6 +107,7 @@ class Pass:
         self.commit_failed = False
         self.out: list[str] = []  # what reached stdout / stderr, replayed while nothing changes
         self.err: list[str] = []
+        self.failed: list[dict] = []
 
     def say(self, text: str, err: bool = False) -> None:
         (self.err if err else self.out).append(text)
@@ -112,6 +118,7 @@ class Pass:
         if rc == 0:
             self.say(f"cli-patch {name}{self.label}: {out}", err=True)
         else:
+            self.failed.append({"name": name, "path": str(path), "rc": rc, "message": out})
             self.say(f"CLI patch '{name}' FAILED (exit {rc}) — its behavior change is NOT active "
                      f"for the claude binary{self.label or ' currently installed'}:\n{out}\nScript: {path}")
 
@@ -159,11 +166,12 @@ class Pass:
             for line in findings:
                 self.say(f"cli-patches lint: {line}")
 
-    def save(self, cache: Path, key: str) -> None:
+    def save(self, cache: Path, key: str, binp: Path) -> None:
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
             tmp.write_text(json.dumps({"key": key, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                       "binary": str(binp), "failed": self.failed,
                                        "out": self.out, "err": self.err}), encoding="utf-8")
             os.replace(tmp, cache)
         except OSError:
@@ -204,7 +212,7 @@ def main() -> int:
         binp = None  # run unbatched and uncached; each patch reports it in its own words
     cache = None
     if binp is not None:
-        cache = CACHE_DIR / f"pass-{hashlib.sha1(str(binp).encode()).hexdigest()[:16]}.json"
+        cache = cache_path(binp)
         if not a.no_cache and replay(cache, fingerprint(binp, a.patches, a.label, a.lint), a.label):
             return 0
 
@@ -221,7 +229,7 @@ def main() -> int:
         traceback.print_exc(file=sys.stdout)
         return 1
     if cache is not None and not p.commit_failed:
-        p.save(cache, fingerprint(binp, a.patches, a.label, a.lint))  # after: the commit moved the mtime
+        p.save(cache, fingerprint(binp, a.patches, a.label, a.lint), binp)  # after: the commit moved the mtime
     return 0
 
 
