@@ -23,6 +23,11 @@
       "name": "keystroke",
       "source": "./keystroke",
       "description": "/keystroke: compose replies through type/backspace/send tool calls, a few characters per call; the reply still lands as a normal assistant message"
+    },
+    {
+      "name": "prompt-queue",
+      "source": "./prompt-queue",
+      "description": "/queue and /hqueue: hold a prompt until Claude is idle (hqueue: also until background jobs finish), listed in a band above the input"
     }
   ]
 }

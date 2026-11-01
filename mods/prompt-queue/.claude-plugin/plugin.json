@@ -1,0 +1,6 @@
+{
+  "name": "prompt-queue",
+  "version": "0.1.0",
+  "description": "/queue and /hqueue: hold a prompt until Claude is idle (hqueue: idle with no background jobs), shown in a band above the prompt",
+  "types": "./types/index.d.ts"
+}
