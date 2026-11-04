@@ -35,6 +35,12 @@ wo=()=>dn()?eW(wo):vo();wo()`). The guard goes at the head of that body:
 `let vo=()=>mt&&!w.get(Ye)||/*marker*/Ya({value:...`, so a deferred interim
 notification is dropped when its turn comes. Nothing reads `vo`'s return value.
 
+2.1.317 adds a `...toolsUsed` spread before `mode:`, and a `waitingNoticeRecipient`
+update before the arrow that turns a repeated "waiting on background work"
+placeholder into a non-waking handback pointer. That update stays above the
+guard. The field's only reader is that enqueue's handback check, which the guard
+skips along with the rest of the call.
+
 What still arrives:
 - The notification an agent sends when it stops with no background work left,
   and failure / stop notifications. These are byte-identical to stock.
@@ -97,13 +103,14 @@ _HEAD = (
 )
 # ≤ 2.1.299 the call is a statement after `);`. Since 2.1.304 it is the body of
 # an arrow (`let vo=()=>Ya({...})`, run now or deferred by `wo()`), and a
-# `...hook&&{scheduledByPlugin:…}` spread sits before skipAttachments.
+# `...hook&&{scheduledByPlugin:…}` spread sits before skipAttachments. 2.1.317
+# adds a `...tools&&{toolsUsed:…}` spread before `mode:`.
 _NOTE = (
     rb'"(?P<note>' + re.escape(NOTE_HEAD) + rb'[^"]*)"'
     rb':"A task-notification fires each time[^"]*",.{0,1500}?(?:\);|;let ' + JSID + rb"=\(\)=>)"
 )
 _CALL = (
-    rb"(?P<call>" + JSID + rb"\(\{value:(?P=ye)\?" + JSID + rb":" + JSID + rb"\(" + JSID + rb"\),"
+    rb"(?P<call>" + JSID + rb"\(\{value:(?P=ye)\?" + JSID + rb":" + JSID + rb"\(" + JSID + rb"\),(?:\.\.\.[^;]{0,120}?\},)?"
     rb'mode:"task-notification",[^;]{0,300}?skipAttachments:!0,priority:' + JSID + rb",agentId:(?P=ne),)"
 )
 # 2.1.299: the interim condition is bound to a variable right after the owner

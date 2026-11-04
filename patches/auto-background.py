@@ -53,6 +53,17 @@ call behaves exactly as stock. The regex accepts the clause as optional and
 matches both shapes. The predicate itself is unchanged (still the first-word
 blocklist, `["sleep"]`).
 
+2.1.317 rewrites the clause again: `Ho=(!gn||So!==void 0)&&YDs(on),` with
+`canAutoBackground:Ho&&So===void 0`. `So` is the tool's `keptStarter` argument,
+which adopts a timed-out shell (`keptBackgroundShells`) instead of registering a
+task, so `Ho` is also true when `gn` forbids background work but a starter is
+there. The `&&So===void 0` keeps such a command's timeout unclamped. The edit is
+the same: force the predicate call. `Ho`'s other consumers (`onTimeout`,
+`shouldAutoBackground`, `autoBackgroundArmed`) are the ones 2.1.309 had.
+The timeout helper now also takes `subagentCapMs` (async subagents, 0 unless the
+`tengu_maple_ferry` flag sets it), so where a cap is on, a `sleep`-led command
+gets the clamp every other subagent command gets.
+
 Same-length edit (Bun single-file executable, JS blob carries length
 metadata). The predicate call is only ~8 bytes, so the marker is whatever
 prefix of `autobg` fits inside `!0/*...*/` — the patched shape itself
@@ -76,14 +87,18 @@ from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 # definition; the regexes below pin the flag's own name and then require its
 # assignment just before, which only the Bash site has in this shape.
 FLAG = b"canAutoBackground:"
-FLAG_RE = re.compile(re.escape(FLAG) + rb"(" + JSID + rb")[,}]")
+FLAG_RE = re.compile(re.escape(FLAG) + rb"(" + JSID + rb")(?:&&" + JSID + rb"===void 0)?[,}]")
 WINDOW = 400  # bytes before FLAG in which the flag's assignment must sit
 
-# `hn=!Wn&&mzs(Ae),` (≤2.1.270) or `Vt=!sr&&ve===void 0&&rYo(Ye),` (2.1.271+)
-# — eligibility = "not forbidden" [AND no wall cap] AND the static predicate.
+# `hn=!Wn&&mzs(Ae),` (≤2.1.270), `Vt=!sr&&ve===void 0&&rYo(Ye),` (2.1.271+) or
+# `Ho=(!gn||So!==void 0)&&YDs(on),` (2.1.317+) — eligibility = "not forbidden"
+# [AND no wall cap / OR a kept starter] AND the static predicate.
 # PowerShell's is `me=!fe&&await Hs(T),`, which this does not match (the
 # `await ` breaks the `&&<call>` adjacency) — deliberately, see the docstring.
-_HEAD = rb"=!" + JSID + rb"&&(?:" + JSID + rb"===void 0&&)?"
+_HEAD = (
+    rb"=(?:!" + JSID + rb"&&(?:" + JSID + rb"===void 0&&)?"
+    rb"|\(!" + JSID + rb"\|\|" + JSID + rb"!==void 0\)&&)"
+)
 STOCK_TAIL = _HEAD + rb"(" + JSID + rb"\(" + JSID + rb"\)),"
 PATCHED_TAIL = _HEAD + rb"(!0(?:/\*[a-z]*\*/| *)),"
 MARKER_TEXT = b"autobg"
