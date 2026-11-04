@@ -28,9 +28,9 @@ leading `sleep` is now the ONLY ineligible shape, and the sibling `Xt`
 (turn-abort backgrounding) dropped its `/git/i` test entirely. That is most of
 what this patch was for, but not all of it: on this box `sleep`-led commands
 are exactly the watchdog shape `hooks/force_background_sleep.py` exists to
-background, and that hook skips subagents (they get no background-completion
-notification), so an unpatched subagent watchdog still ends in a silent
-SIGTERM. Forcing the flag closes that last case. See also
+background, and that hook skips in-process teammates (an idle one isn't woken
+by its own task notifications), so an unpatched teammate watchdog still ends in
+a silent SIGTERM. Forcing the flag closes that last case. See also
 `sleep-guard-off.py`, which removes the separate pre-spawn rejection of the
 same commands.
 
