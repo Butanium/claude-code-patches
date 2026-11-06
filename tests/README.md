@@ -73,6 +73,7 @@ read one trivial `-p` turn.
 | empty-git-not-repo | interactive session started in a subfolder holding an empty `.git`, inside a git repo whose root is trusted, shows no folder-trust prompt (stock: it does) | tmux (psmux >= 3.3.8 on Windows) |
 | interim-task-notif | stream-json session on the mock API: a background agent starts a background Bash job and ends its turn; no lead request carries its interim result, and the final one arrives | all with Bash |
 | thinking-summaries-print | with `showThinkingSummaries: true`, a `-p --output-format text` turn on haiku sends `thinking.display: "summarized"` and its transcript thinking block has text (stock: `"omitted"`, empty block); a stream-json turn against the mock API sends `"summarized"` (stock: no display) | all |
+| fork-subagents | stream-json session on the mock API: a fork's request carries the new boilerplate, no request has the "re-delegate" repeats, and a nested fork is still refused | all |
 | zz-bytecode-off | structural: every module that differs from `.orig` has its bytecode length zeroed | all |
 | idle-notif, peer-msg-warning, shutdown-reason | one lead + one pane teammate | tmux (psmux >= 3.3.8 on Windows) |
 | plan-exit-nag, mode-nag-off | shift+tab from default through plan into bypass mode, then one prompt | tmux (psmux >= 3.3.8 on Windows) |
