@@ -114,6 +114,7 @@ export const register: Register = on => {
   on('command.run', { command: COMMAND }, async ($, e) => ({ text: await run($, e.args) }))
 
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     turnRunning = true
     return next(e)
   })

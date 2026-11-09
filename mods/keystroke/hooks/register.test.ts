@@ -172,3 +172,13 @@ test('off again: the prompt section goes and the tools refuse', async ($, on) =>
   expect((await $.command.run(cmd('off'))).text).toContain('written directly again')
   expect((await $.tool.call(call(TYPE, { text: 'h' }))).deny).toContain('off')
 })
+
+test('a subagent turn starting keeps the main draft', async ($, on) => {
+  mockWorld(on)
+  await $.session.start(START)
+  await $.command.run(cmd('on'))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(call(TYPE, { text: 'h' }))
+  await $.turn.start({ text: 'background work', turnId: 'a1-t', agentId: 'a1' })
+  expect((await $.tool.call(call(TYPE, { text: 'i' }))).result).toBe('hi▍')
+})

@@ -190,6 +190,7 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     await update($, isRunning, () => true)
     return next(e)
   })

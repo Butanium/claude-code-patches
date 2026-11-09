@@ -194,3 +194,13 @@ test('the band lists items and its buttons cancel and send', async ($, on) => {
   expect(world.prompts.map(p => p.text)).toEqual(['second prompt'])
   expect(await ui.find({ text: /queued prompt/ })).toBeUndefined()
 })
+
+test('a subagent turn starting does not hold the queue', async ($, on) => {
+  const clock = mock.clock(on)
+  const world = mockWorld(on)
+  await $.session.start(START)
+  await $.turn.start({ text: 'background work', turnId: 'a1-t', agentId: 'a1' })
+  await $.command.run(cmd('queue', 'now please'))
+  await clock.advance(1_000)
+  expect(world.prompts.map(p => p.text)).toEqual(['now please'])
+})

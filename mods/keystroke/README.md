@@ -75,5 +75,5 @@ replies; `/keystroke 5` or more is the usable setting for anything beyond a sent
 
 `claude plugin test <this folder>` runs `hooks/register.test.ts` (parsing, the draft
 view, type/backspace/send, the chunk rule, the stop hook, the synthesized step, the
-narration rule). The one-per-response rule depends on tool_use ids the test kit
+narration rule, a subagent turn leaving the draft alone). The one-per-response rule depends on tool_use ids the test kit
 assigns itself, so it is covered by an interactive probe instead.

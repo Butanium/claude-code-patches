@@ -122,3 +122,16 @@ test('a failed compaction is tried once per turn end, not retried', async ($, on
   expect(world.attempts).toBe(2)
   expect(world.compactions).toBe(0)
 })
+
+test('a subagent turn starting right after a main turn ends does not skip the check', async ($, on) => {
+  const clock = mock.clock(on)
+  const world = mockWorld(on, 100_000)
+  await $.session.start(START)
+  await $.command.run(cmd('on'))
+  await $.turn.start(TURN_START)
+  world.tokens = 170_000
+  await $.turn.complete(TURN_END)
+  await $.turn.start({ text: 'background work', turnId: 'a1-t', agentId: 'a1' })
+  await clock.advance(10_000)
+  expect(world.compactions).toBe(1)
+})

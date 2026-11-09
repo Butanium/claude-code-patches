@@ -213,6 +213,7 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     pendingSend = null
     synthesizedThisTurn = false
     blocksThisTurn = 0

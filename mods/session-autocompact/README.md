@@ -28,7 +28,7 @@ that turn ends, and "continue" picks up.
 
 Tested 2026-10-07 on 2.1.289 in an interactive Haiku session (`--plugin-dir`): status,
 on at 5% → compacted 200 ms after the first turn, setting kept across `claude -r`, off →
-no compaction. `claude plugin test .` runs `hooks/register.test.ts` (6 pass on 2.1.293;
+no compaction. `claude plugin test .` runs `hooks/register.test.ts` (7 pass on 2.1.321;
 on 2.1.289 the command refused to run, "the rollout switch was saved off by an earlier
 session", although mods loaded in interactive sessions).
 
