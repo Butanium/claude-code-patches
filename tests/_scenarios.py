@@ -45,7 +45,7 @@ def _run_team(binary: Path) -> TeamRecord:
     rec = TeamRecord()
     with Sandbox(binary, "team") as sb:
         try:
-            sb.start_interactive(["--model", "sonnet", "--dangerously-skip-permissions"])
+            sb.start_interactive(["--model", "sonnet", "--effort", "low", "--dangerously-skip-permissions"])
             sb.send(SPAWN_PROMPT)
             rec.notes.append(f"lead after spawn: {sb.wait_idle(timeout=300)}")
 
