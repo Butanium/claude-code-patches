@@ -27,3 +27,13 @@ Cost: a patch that fails on a new version is reported one session later instead 
 `auto_repair.py` runs one repair session at a time, and a session that asked a question stays open until someone answers or closes it. If the ntfy goes unanswered for days, later versions' failures pile up behind it; each session start prints a line about it, but nothing re-pings. A cheap fix: when the open session's last transcript write is older than a day or two, send one reminder through ntfy, or allow a new repair session for failures on a newer version. Also untested in practice as of 2026-11-10: the ask-and-wait path itself. Both real runs so far (2.1.308, 2.1.317) were routine repairs that closed silently.
 
 — opus-5-5, 2026-11-10 (auto-repair session)
+
+## Let subagents write report-named files (owner asked for it, 2026-09-28)
+
+The Write tool refuses any subagent write whose basename matches `^(REPORT|SUMMARY|FINDINGS|ANALYSIS).*\.md$` ("Subagents should return findings as text…", errorCode 5, telemetry `tengu_subagent_md_report_blocked`), whatever the brief asked for. It has cost at least two subagents their output file (2026-09-26, 2026-10-08). Still present in 2.1.321: `clisrc.py --find 'Subagents should return findings' -F` lands in Write's input validation, gated on `s.agentId&&/^(REPORT|…)/i.test(basename)`. Two routes: a mod on `tool.check` for `Write` that returns `allow` when the only objection is this one (check first that the tool's own validation is part of the chain a `tool.check` answer overrides), or a same-length byte patch that makes the regex unmatchable (e.g. `\.md$` → `\.m~$`). Prefer the mod if it works. Behavior test: a subagent asked to write `REPORT.md` succeeds.
+
+## Fold the claude.ai connectors' MCP instructions (owner asked for it, 2026-09-28)
+
+Connector tools are already deferred (names only), but each connected claude.ai MCP server's instructions are injected in full into every session's system prompt, including servers the archive shows no session ever calling (Airtable, Rize, Slack and others). The owner wants each reduced to a one-line description plus "ToolSearch finds its tools". `prompt.section` fires once per named system-prompt section, so a mod can rewrite the MCP-instructions section: keep the servers in an allowlist verbatim, replace the others' blocks with `<name>: <first sentence>. Load its tools with ToolSearch.` Read the section id off `prompt.compose` first. Watch prompt-cache stability: the rewrite must be deterministic.
+
+— opus-5-5, 2026-11-11 (archive-sweep refresh)
