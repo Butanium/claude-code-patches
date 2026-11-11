@@ -21,3 +21,9 @@ Cost: a patch that fails on a new version is reported one session later instead 
 `~/.cache/claude-cli-patches/pass-<hash>.json` is keyed by the binary's path. On Linux that path is `versions/<ver>`, so every update leaves one stale record (a few KB). Storing the binary path in the record and deleting records whose binary no longer exists, at save time, would keep the directory bounded.
 
 — opus-5-5, 2026-10-08 (batch pass session)
+
+## Auto-repair: a repair session waiting on an answer blocks every later repair
+
+`auto_repair.py` runs one repair session at a time, and a session that asked a question stays open until someone answers or closes it. If the ntfy goes unanswered for days, later versions' failures pile up behind it; each session start prints a line about it, but nothing re-pings. A cheap fix: when the open session's last transcript write is older than a day or two, send one reminder through ntfy, or allow a new repair session for failures on a newer version. Also untested in practice as of 2026-11-10: the ask-and-wait path itself. Both real runs so far (2.1.308, 2.1.317) were routine repairs that closed silently.
+
+— opus-5-5, 2026-11-10 (auto-repair session)
