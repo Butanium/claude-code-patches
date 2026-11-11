@@ -10,6 +10,7 @@ behavior through documented hook events instead of editing the binary:
 | `session-autocompact/` | `/session-autocompact on`: auto-compact one session while the global setting stays off ([README](session-autocompact/README.md)) |
 | `keystroke/` | `/keystroke on`: the model composes each reply through `type`/`backspace`/`send` tool calls, a few characters per call; the keystroke rows are hidden, the draft is drawn above the prompt, and the reply lands as a normal assistant message ([README](keystroke/README.md)) |
 | `prompt-queue/` | `/queue <prompt>` holds a prompt until Claude is idle instead of folding it into the running turn; `/hqueue` also waits for background jobs; held prompts are listed in a band above the input ([README](prompt-queue/README.md)) |
+| `progress/` | `/progress`: a shortcut for `/btw how is it going? anything i should know?`; the answer is drawn in a band above the prompt and stays out of the transcript ([README](progress/README.md)) |
 
 ## Loading them
 

@@ -1,0 +1,6 @@
+{
+  "name": "progress",
+  "version": "0.1.0",
+  "description": "/progress: ask \"how is it going? anything i should know?\" as a side question, like /btw, answered in a band above the prompt",
+  "types": "./types/index.d.ts"
+}

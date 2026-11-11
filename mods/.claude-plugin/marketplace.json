@@ -28,6 +28,11 @@
       "name": "prompt-queue",
       "source": "./prompt-queue",
       "description": "/queue and /hqueue: hold a prompt until Claude is idle (hqueue: also until background jobs finish), listed in a band above the input"
+    },
+    {
+      "name": "progress",
+      "source": "./progress",
+      "description": "/progress: ask \"how is it going? anything i should know?\" as a side question, like /btw, answered in a band above the input"
     }
   ]
 }
