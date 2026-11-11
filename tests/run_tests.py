@@ -12,8 +12,14 @@ A test passes when it observes the patched behavior on --binary and, with
 that also "passes" on stock proves nothing). With --mod DIR, the tests that
 DIR/covers.json lists also run on that stock copy with the plugin at DIR
 loaded, and must observe the patched behavior there. Tests live next to this file as
-test_<patch>.py; extra test dirs come from --tests-dir and from the `tests/`
-sibling of every CLAUDE_CLI_PATCHES_EXTRA_DIRS entry (private patch repos).
+test_<patch>.py; extra test dirs come from --tests-dir, from the `tests/`
+sibling of every CLAUDE_CLI_PATCHES_EXTRA_DIRS entry (private patch repos), and
+from CLAUDE_CLI_PATCH_EXTRA_TESTS_DIRS (same format: `:`-separated, relative
+entries resolve against the config dir). The last one is for code outside any
+patch repo that depends on a patch, such as a hook that reads the binary to learn
+whether a patch is in effect: its test checks that reading on both arms. Such a
+module names the patches it depends on in `COVERS = ("patch-a", ...)`, and
+`--only patch-a` then runs it too.
 
 Each test module exposes `run(binary) -> Verdict`; shared expensive sessions
 (one team session, one baseline `-p` turn) run once per binary per invocation.
@@ -42,13 +48,14 @@ from _harness import (INCONCLUSIVE, PATCHED, STOCK, Verdict, binary_version, dro
 
 def extra_test_dirs() -> list[Path]:
     config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
-    out = []
-    for entry in filter(None, os.environ.get("CLAUDE_CLI_PATCHES_EXTRA_DIRS", "").split(":")):
-        p = Path(entry).expanduser()
-        p = p if p.is_absolute() else config / p
-        if (p.parent / "tests").is_dir():
-            out.append(p.parent / "tests")
-    return out
+
+    def entries(var: str) -> list[Path]:
+        paths = [Path(e).expanduser() for e in filter(None, os.environ.get(var, "").split(":"))]
+        return [p if p.is_absolute() else config / p for p in paths]
+
+    out = [p.parent / "tests" for p in entries("CLAUDE_CLI_PATCHES_EXTRA_DIRS")]
+    out += entries("CLAUDE_CLI_PATCH_EXTRA_TESTS_DIRS")
+    return [d for d in out if d.is_dir()]
 
 
 def load_tests(dirs: list[Path]) -> dict[str, object]:
@@ -97,7 +104,7 @@ def _main(a: argparse.Namespace) -> int:
     tests = load_tests([HERE, *a.tests_dir, *extra_test_dirs()])
     if a.only:
         wanted = {w.strip().removesuffix(".py") for w in a.only.split(",")}
-        tests = {k: v for k, v in tests.items() if k in wanted}
+        tests = {k: v for k, v in tests.items() if k in wanted or wanted & set(getattr(v, "COVERS", ()))}
     has_tmux = shutil.which("tmux") is not None  # psmux on Windows
     if problem := login_problem():
         print(f"not running: {problem}")

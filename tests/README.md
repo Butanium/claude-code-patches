@@ -116,6 +116,17 @@ evidence either way), plus `NEEDS_TMUX = True` if it drives a TUI. End with
 put theirs in a `tests/` next to their `patches/`, and `run_tests.py` finds
 them through `CLAUDE_CLI_PATCHES_EXTRA_DIRS`.
 
+Code outside any patch repo can depend on a patch too. The usual case is a hook
+that reads the binary to learn whether a patch is in effect and changes its
+advice accordingly. When the patch is re-anchored for a new claude version and
+that reader is not, the reader reports "unpatched" on a patched binary and
+nothing says so. Give such code a test with the same `run(binary) -> Verdict`
+shape (`PATCHED` when it reads the patch as in effect, `STOCK` when it reads the
+binary as stock, `INCONCLUSIVE` when it cannot tell), list its directory in
+`CLAUDE_CLI_PATCH_EXTRA_TESTS_DIRS` (`:`-separated, relative entries resolve
+against the config dir), and set `COVERS = ("patch-name", ...)` in the module so
+`--only patch-name` runs it together with the patch's own test.
+
 Gotchas met while building these:
 
 - **Idle detection**: in a detached tmux server the pane title can keep its idle
