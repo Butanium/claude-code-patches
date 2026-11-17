@@ -47,7 +47,13 @@ from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 NAME = "empty-git-not-repo"
 ANCHOR = b'find_git_root_started'
 # The git-root walk: ...find_git_root_started");...let s=L(r,".git");if(o++,We(s,r))...
-CALLER = re.compile(rb'find_git_root_started.{0,400}?"\.git"\);if\(' + JSID + rb'\+\+,(' + JSID + rb')\(', re.S)
+# 2.1.325 put an autofs check in the loop (`let l=Kee(r),u=x(r,".git");if(s+=l?0:1,!l&&xvn(u,r))`),
+# so the walk's final call after the loop is also accepted: `if(s++,xvn(x(o,".git"),o))`.
+CALLER = re.compile(
+    rb'find_git_root_started.{0,400}?"\.git"\);if\(' + JSID + rb'\+\+,(' + JSID + rb')\('
+    rb'|find_git_root_started.{0,700}?if\(' + JSID + rb'\+\+,(' + JSID + rb')\(' + JSID + rb'\(' + JSID + rb',"\.git"\),',
+    re.S,
+)
 
 
 def checker_def(name: bytes) -> re.Pattern[bytes]:
@@ -79,7 +85,7 @@ def main() -> int:
                     f"({[str(p) for p in candidate_binaries()]})")
     binp, data = target
 
-    callers = {m.group(1) for m in CALLER.finditer(data)}
+    callers = {m.group(1) or m.group(2) for m in CALLER.finditer(data)}
     if len(callers) != 1:
         return fail(f"expected one .git checker name in the git-root walk, found {sorted(callers)}")
     name = callers.pop()

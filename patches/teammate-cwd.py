@@ -23,11 +23,22 @@ The patch:
     teammate in the wrong place without a word, so it now throws when `cwd` is
     set. That covers teammateMode "in-process" and the auto fallback when no
     pane backend is available.
+  - pane spawners, 2.1.325+ only: upstream dropped `cwd` from their destructure
+    and now compute the pane directory as `let T=OIn();` (lead's dir). The patch
+    makes that `let T=n.cwd||OIn();`, which is what 2.1.321 had natively
+    (`let T=P||pe();` with `P` the destructured cwd).
+  - 2.1.325 also added a clause to the gate,
+    `&&(ude(e)===$a()?.worktreePath||!_is())`, between `!cwd` and `!flag()`
+    (an agent running in its own worktree does not get a teammate). It is left
+    as is.
 
 Bytes: the gate/call region pays for `cwd:<cwd>,` and the marker comment by
 shortening the adjacent error "is not offered in this session." -> "... here.".
 The in-process edit pays for `||n.cwd` by rewording its (unreachable from the
 Agent tool: name and prompt are always present there) missing-params error.
+Each pane-spawner edit pays for `n.cwd||` by cutting the second sentence of the
+"Internal error: session team not initialized." error just before it; the gate
+already requires a team context, so that error is unreachable from the Agent tool.
 
 Pairs with the PreToolUse hook `~/.claude/hooks/agent-worktree-teammate.py`,
 which turns `name`+`isolation:"worktree"` into a fresh worktree + `cwd`.
@@ -66,6 +77,31 @@ INPROC = re.compile(
 )
 INPROC_MSG_OLD = b'Error("name and prompt are required for spawn operation")'
 INPROC_MSG_NEW_TEXT = b"cwd unsupported for in-process teammates."
+INPROC_LOG = b"[handleSpawnInProcess]"
+
+# 2.1.325+: a pane spawner that ignores the caller's cwd. Group `cut` is freed,
+# group `dir` (`let T=OIn();`) gets `<arg>.cwd||`.
+PANE_STOCK = re.compile(
+    rb"\{name:" + JSID + rb",prompt:" + JSID + rb",agent_type:" + JSID + rb",plan_mode_required:"
+    + JSID + rb"\}=(?P<arg>" + JSID + rb"),(?:(?!async function).){0,600}?"
+    rb'Error\("Internal error: session team not initialized\.'
+    rb'(?P<cut> This should have happened at startup when agent swarms are enabled\."\);)'
+    rb"(?P<dir>let (?P<t>" + JSID + rb")=(?P<fn>" + JSID + rb")\(\);)return " + JSID + rb"\(" + JSID + rb","
+    + JSID + rb",\{agentType:" + JSID + rb",model:" + JSID + rb",prompt:" + JSID + rb",planModeRequired:"
+    + JSID + rb",cwd:(?P=t)\}",
+    re.S,
+)
+# Through 2.1.321 both pane spawners destructure the caller's cwd themselves.
+PANE_NATIVE = re.compile(
+    rb"\{name:" + JSID + rb",prompt:" + JSID + rb",agent_type:" + JSID + rb",cwd:" + JSID
+    + rb",plan_mode_required:" + JSID + rb"\}=" + JSID + rb","
+)
+PANE_PATCHED = re.compile(
+    rb'Error\("Internal error: session team not initialized\."\); *let (?P<t>' + JSID + rb")="
+    + JSID + rb"\.cwd\|\|" + JSID + rb"\(\);return " + JSID + rb"\(" + JSID + rb"," + JSID
+    + rb",\{agentType:" + JSID + rb",model:" + JSID + rb",prompt:" + JSID + rb",planModeRequired:"
+    + JSID + rb",cwd:(?P=t)\}"
+)
 
 
 def fail(msg: str) -> int:
@@ -100,8 +136,10 @@ def build(data: bytes) -> bytes:
         raise RuntimeError("could not find the working copy of the cwd variable")
     cwd = cm.group(1)
 
+    # 2.1.325 inserted `&&(ude(e)===$a()?.worktreePath||!_is())` before the flag call.
     gate_pat = re.compile(
-        rb"&&!" + re.escape(iso) + rb"&&!" + re.escape(cwd) + rb"&&!" + JSID + rb"\(\)\)\{"
+        rb"(?P<pre>&&!" + re.escape(iso) + rb")&&!" + re.escape(cwd)
+        + rb"(?P<post>(?:&&\([^{};]*?\))?&&!" + JSID + rb"\(\)\)\{)"
     )
     gates = list(gate_pat.finditer(data, ds[0].end(), sp))
     if len(gates) != 1:
@@ -115,9 +153,8 @@ def build(data: bytes) -> bytes:
     if region.count(OFFERED_OLD) != 1:
         raise RuntimeError(f"expected 1 {OFFERED_OLD!r} between gate and call")
 
-    drop = b"&&!" + cwd
     gate_old = g.group(0)
-    gate_new_head = gate_old.replace(drop, b"", 1)  # ...&&!<iso>&&!f()){
+    gate_new_head = g.group("pre") + g.group("post")  # ...&&!<iso>[&&(...)]&&!f()){
     body = region[len(gate_old) : -len(CALL_ANCHOR)]
     body = body.replace(OFFERED_OLD, OFFERED_NEW, 1)
     tail = CALL_ANCHOR + b"cwd:" + cwd + b","
@@ -130,7 +167,13 @@ def build(data: bytes) -> bytes:
     out[start:end] = new_region
 
     # --- 4. in-process spawner refuses cwd -------------------------------
-    ips = [m for m in INPROC.finditer(data) if data.find(INPROC_MSG_OLD, m.end(), m.end() + 300) != -1]
+    # 2.1.325 dropped cwd from the pane spawners' destructure too, so the shape
+    # alone no longer picks the in-process one; its debug log tag does.
+    ips = [
+        m for m in INPROC.finditer(data)
+        if data.find(INPROC_MSG_OLD, m.end(), m.end() + 300) != -1
+        and data.find(INPROC_LOG, m.end(), m.end() + 1200) != -1
+    ]
     if len(ips) != 1:
         raise RuntimeError(f"expected 1 in-process spawner (destructure without cwd), found {len(ips)}")
     ip = ips[0]
@@ -152,6 +195,22 @@ def build(data: bytes) -> bytes:
     assert len(seg_new) == len(seg_old), (len(seg_new), len(seg_old))
     out[c : c + len(seg_old)] = seg_new
 
+    # --- 5. pane spawners honor cwd (2.1.325+) ---------------------------
+    panes = list(PANE_STOCK.finditer(data))
+    native = len(PANE_NATIVE.findall(data))
+    if (len(panes), native) not in ((0, 2), (2, 0)):
+        raise RuntimeError(
+            f"expected 2 pane spawners, either all reading cwd or all ignoring it; found {native} "
+            f"reading it and {len(panes)} ignoring it (`let T=<fn>();` after 'Internal error: session "
+            f"team not initialized.')"
+        )
+    for pm in panes:
+        cut_s, dir_e = pm.start("cut"), pm.end("dir")
+        new_dir = b"let " + pm.group("t") + b"=" + pm.group("arg") + b".cwd||" + pm.group("fn") + b"();"
+        seg = b'");' + b" " * (dir_e - cut_s - 3 - len(new_dir)) + new_dir
+        assert len(seg) == dir_e - cut_s and seg[3:4] == b" ", seg
+        out[cut_s:dir_e] = seg
+
     assert len(out) == len(data)
     return bytes(out)
 
@@ -163,7 +222,7 @@ def main() -> int:
     binp = cands[0]
     data = read_binary(binp)
     if MARKER in data:
-        if SCHEMA_NEW not in data or b".cwd)throw" not in data:
+        if SCHEMA_NEW not in data or b".cwd)throw" not in data or PANE_STOCK.search(data):
             return fail(f"marker present but the other edits are missing in {binp} — half-applied?")
         print(f"teammate-cwd: confirmed already patched ({binp})", file=sys.stderr)
         return 0
@@ -176,7 +235,11 @@ def main() -> int:
         )
 
     def _verify(written: bytes) -> None:
-        if len(written) != len(data) or written.count(MARKER) != 1 or SCHEMA_OLD in written:
+        if (
+            len(written) != len(data) or written.count(MARKER) != 1 or SCHEMA_OLD in written
+            or PANE_STOCK.search(written)
+            or len(PANE_PATCHED.findall(written)) != len(PANE_PATCHED.findall(data)) + len(PANE_STOCK.findall(data))
+        ):
             raise RuntimeError("post-write verification failed — live binary untouched")
 
     apply_patch(binp, data, patched, _verify)

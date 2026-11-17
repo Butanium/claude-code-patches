@@ -56,15 +56,15 @@ started from inside a Claude session doesn't inherit that session's settings).
 
 Shared sessions (`_scenarios.py`) run once per binary per `run_tests.py`
 invocation: idle-notif, shutdown-reason and peer-msg-warning all read one lead
-plus one pane teammate session, and the three undefer tests plus teammate-cwd
-read one trivial `-p` turn.
+plus one pane teammate session, and the three undefer tests plus teammate-cwd's
+schema check read one trivial `-p` turn.
 
 ## Tests
 
 | Test | How | Platforms |
 |---|---|---|
 | monitor-undefer, sendmessage-undefer, taskstop-undefer | the tool is in the first request's `tools` (a tool that stays deferred on every binary guards against tool search being off) | all |
-| teammate-cwd | Agent's schema offers `cwd` (schema half only; the pane-routing half is not exercised) | all |
+| teammate-cwd | Agent's schema offers `cwd`, and a lead asked to call Agent with `name` + `cwd` gets a teammate pane whose shell sits in that directory (stock: the lead's directory) | tmux (psmux >= 3.3.8 on Windows) |
 | monitor-persistent | Monitor with `persistent: true` arms a watch with no deadline | all |
 | sleep-guard-off | `sleep 26; echo …` runs instead of "Blocked: sleep 26" | all with Bash |
 | auto-background | `sleep 8; …` with a 3 s timeout is backgrounded, not killed with exit 143 | all with Bash |

@@ -58,6 +58,10 @@ The edit replaces the threshold comparison `d<M6t` with `1` plus spaces:
 
     if(d<M6t)return null;   ->   if(1    )return null;
 
+From 2.1.325 the parse lives in a separate function and the guard tests its
+result, `if(n===null||n.seconds<Fyo)return null;`; the whole condition becomes
+`1` plus spaces, which still skips the message (see `_detector`).
+
 Always-true guard, so the detector returns null before it ever builds a
 message. Padding with spaces rather than a marker comment keeps this working
 for any length of threshold identifier (a comment needs 6 bytes of overhead
@@ -75,7 +79,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
+from _binpatch import JSID, apply_patch, candidate_binaries, read_binary, splice
 
 
 def _detector(comparison: bytes) -> re.Pattern[bytes]:
@@ -86,27 +90,56 @@ def _detector(comparison: bytes) -> re.Pattern[bytes]:
     the regex capture just above it, so the match is pinned to the seconds
     value actually being compared. `Start-Sleep` in the PowerShell sibling's
     template is what keeps this from matching there.
+
+    Two shapes. 2.1.270-2.1.321: one function parses and tests the seconds. 2.1.325
+    split the parse into its own function and tests the parsed object:
+        function qhi(e){let n=zhi(e);if(n===null||n.seconds<Fyo)return null;
+          return n.rest?`sleep ${n.seconds} followed by: ${n.rest}`:`standalone sleep ${n.seconds}`}
+    The parse function has other callers in neither version, but only the test
+    is patched, so a future caller of the parse keeps its stock behavior.
+    Group `guard` is the condition inside `if(...)`, the bytes that get replaced.
     """
-    return re.compile(
+    one_fn = (
         rb"let (?P<sec>" + JSID + rb")=parseFloat\(" + JSID + rb"\[1\]\);"
-        rb"if\(" + comparison + rb"\)return null;"
+        rb"if\((?P<guard>" + comparison(rb"(?P=sec)", rb"thr") + rb")\)return null;"
         rb"let (?P<rest>" + JSID + rb")=" + JSID + rb"\.slice\(1\)\.join\(\" \"\)\.trim\(\);"
         rb"return (?P=rest)\?`sleep \$\{(?P=sec)\} followed by: \$\{(?P=rest)\}`"
         rb":`standalone sleep \$\{(?P=sec)\}`"
     )
+    split = (
+        rb"let (?P<obj>" + JSID + rb")=" + JSID + rb"\(" + JSID + rb"\);"
+        rb"if\((?P<guard2>" + comparison(rb"(?P=obj)\.seconds", rb"thr2", null_check=rb"(?P=obj)===null\|\|")
+        + rb")\)return null;"
+        rb"return (?P=obj)\.rest\?`sleep \$\{(?P=obj)\.seconds\} followed by: \$\{(?P=obj)\.rest\}`"
+        rb":`standalone sleep \$\{(?P=obj)\.seconds\}`"
+    )
+    return re.compile(one_fn + rb"|" + split)
 
 
-# Stock: `if(<seconds> < <threshold>)`, both minified.
-STOCK_RX = _detector(rb"(?P=sec)<(?P<thr>" + JSID + rb")")
-# Patched: `if(1   )` — always true, detector returns null, nothing is blocked.
-PATCHED_RX = _detector(rb"1 *")
+def _stock(sec: bytes, thr: bytes, null_check: bytes = b"") -> bytes:
+    """Stock guard: `[<obj>===null||]<seconds><<threshold>`, all minified."""
+    return null_check + sec + rb"<(?P<" + thr + rb">" + JSID + rb")"
+
+
+def _patched(sec: bytes, thr: bytes, null_check: bytes = b"") -> bytes:
+    """Patched guard: `1` plus spaces — always true, detector returns null."""
+    return rb"1 *"
+
+
+STOCK_RX = _detector(_stock)
+PATCHED_RX = _detector(_patched)
+
+
+def _guard_span(m: re.Match[bytes]) -> tuple[int, int]:
+    g = "guard" if m.group("guard") is not None else "guard2"
+    return m.start(g), m.end(g)
 
 REINVESTIGATE = (
     "re-investigate around the string 'followed by:' in the binary: there are two "
     "copies of this detector, and the Bash one is the copy whose template says "
     "'sleep ${d} followed by:' (the other says 'Start-Sleep'). The guard to "
     "neutralize is the `if(<seconds><<threshold>)return null;` immediately above "
-    "that template; the threshold is a module-level `var <name>=25;` shared with "
+    "that template (2.1.325: `if(n===null||n.seconds<<threshold>)return null;`); the threshold is a module-level `var <name>=25;` shared with "
     "the PowerShell copy, so do NOT patch the declaration itself"
 )
 
@@ -132,22 +165,12 @@ def main() -> int:
         )
         return 1
 
-    m = matches[0]
-    seconds, threshold = m.group("sec"), m.group("thr")
-    old = b"if(" + seconds + b"<" + threshold + b")return null;"
-    new = b"if(1" + b" " * (len(seconds) + len(threshold)) + b")return null;"
-    if len(new) != len(old):
-        print(f"length drift {len(old)} -> {len(new)} — refusing", file=sys.stderr)
-        return 1
-    if data.count(old) != 1:
-        print(
-            f"guard {old!r} occurs {data.count(old)}x — ambiguous, refusing to patch; "
-            f"{REINVESTIGATE}",
-            file=sys.stderr,
-        )
-        return 1
-
-    patched = data.replace(old, new, 1)
+    start, end = _guard_span(matches[0])
+    old = data[start:end]
+    new = b"1" + b" " * (len(old) - 1)
+    assert len(new) == len(old)
+    patched = splice(data, start, end, new)
+    assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:
         if (

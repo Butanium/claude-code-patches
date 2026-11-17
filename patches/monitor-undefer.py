@@ -27,7 +27,9 @@ moved once already — `permissionCheckFailureDecision` through 2.1.257,
 `userFacingName(){return"Monitor"}` from 2.1.271 (`De={name:za,
 enablesCodeExecution:!0,maxResultSizeChars:1e4,shouldDefer:!0,userFacingName()
 {return"Monitor"},...}` in 2.1.278's chunk-sdv516s1.js) — so the regex accepts
-either. To re-derive after an update:
+either. 2.1.325 added `registryToolId` before the size cap and a
+`whenToUse:` template literal between the size cap and the flag; the
+regex allows that literal as an optional middle property. To re-derive after an update:
 `scripts/cli-patches/clisrc.py --find 'searchHint:"watch, monitor'` locates the
 Monitor tool literal, and the base object it spreads holds the flag.
 
@@ -46,8 +48,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _binpatch import apply_patch, candidate_binaries, read_binary, splice
 
 _NEXT_PROP = rb'(permissionCheckFailureDecision|userFacingName\(\)\{return"Monitor"\})'
-PATTERN = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!0," + _NEXT_PROP)
-PATCHED = re.compile(rb"maxResultSizeChars:1e4,shouldDefer:!1," + _NEXT_PROP)
+# 2.1.325 put a `whenToUse:` template literal between the size cap and the flag.
+_WHEN = rb"(?:whenToUse:`[^`]*`,)?"
+PATTERN = re.compile(rb"maxResultSizeChars:1e4," + _WHEN + rb"shouldDefer:!0," + _NEXT_PROP)
+PATCHED = re.compile(rb"maxResultSizeChars:1e4," + _WHEN + rb"shouldDefer:!1," + _NEXT_PROP)
 
 
 def main() -> int:
