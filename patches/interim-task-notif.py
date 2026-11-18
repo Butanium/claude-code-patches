@@ -41,6 +41,14 @@ placeholder into a non-waking handback pointer. That update stays above the
 guard. The field's only reader is that enqueue's handback check, which the guard
 skips along with the rest of the call.
 
+2.1.326 moves the enqueue and its defer loop into a helper shared with the
+takeover notice (`function ZNs(e,n,r){...Ya({...r(),mode:"task-notification",...})}`),
+called last in the notification function as `ZNs(e,St,()=>({value:At?Hn:mFo(Hn),...}))`.
+The guard goes on that call: `Pt&&!N.get(kt)||/*marker*/ZNs(e,St,...)`. The
+skipped part of the helper only reads two registries (spawn provenance, unnamed
+steered agents) before the enqueue, so an interim notification is now dropped
+before the defer loop instead of when its turn comes.
+
 What still arrives:
 - The notification an agent sends when it stops with no background work left,
   and failure / stop notifications. These are byte-identical to stock.
@@ -75,7 +83,8 @@ marker is the idempotency signal.
 
 Re-investigation anchor if this stops applying after an update: the string
 "This agent stopped with background work of its own still running" and the
-`ea({value:...,mode:"task-notification",...})` call right after it.
+`ea({value:...,mode:"task-notification",...})` call after it (since 2.1.326 a
+call to the helper that builds that object).
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
@@ -129,7 +138,34 @@ SITE_INLINE = re.compile(
     + _NOTE + _CALL,
     re.DOTALL,
 )
-SITES = (SITE_HOISTED, SITE_INLINE)
+# 2.1.326: the enqueue lives in a helper shared with the takeover notice; the
+# notification function's last statement calls it with the value as an arrow
+# (`});ZNs(e,St,()=>({value:At?Hn:mFo(Hn),...}))`). The guard goes on that call.
+SITE_HELPER = re.compile(
+    _HEAD
+    + rb"(?P<cond>" + JSID + rb")=" + JSID + rb'==="completed"&&' + JSID + rb"\(" + JSID + rb"\),.{0,2500}?"
+    rb",(?P<t>" + JSID + rb")=(?P=cond)\?"
+    rb'"(?P<note>' + re.escape(NOTE_HEAD) + rb'[^"]*)"'
+    rb':"A task-notification fires each time[^"]*",.{0,2500}?\}\);'
+    rb"(?P<call>" + JSID + rb"\(" + JSID + rb",(?P=ne),\(\)=>\(\{value:(?P=ye)\?" + JSID + rb":" + JSID
+    + rb"\(" + JSID + rb"\),)",
+    re.DOTALL,
+)
+SITES = (SITE_HELPER, SITE_HOISTED, SITE_INLINE)
+# Every site contains the note as a JS string literal and spans well under this
+# many bytes on each side of it; scanning only these windows takes the search
+# from ~11 s per site over the whole binary to milliseconds.
+WINDOW = 8000
+
+
+def site_matches(site: re.Pattern, data: bytes) -> list[re.Match]:
+    seen: dict[int, re.Match] = {}
+    i = data.find(b'"' + NOTE_HEAD)
+    while i != -1:
+        for m in site.finditer(data, max(0, i - WINDOW), i + WINDOW):
+            seen.setdefault(m.start(), m)
+        i = data.find(b'"' + NOTE_HEAD, i + 1)
+    return list(seen.values())
 
 
 def build(m: re.Match) -> bytes:
@@ -152,7 +188,7 @@ def main() -> int:
         if MARKER in data:
             print(f"interim-task-notif: confirmed already patched ({binp})", file=sys.stderr)
             return 0
-        matches = next((ms for ms in (list(s.finditer(data)) for s in SITES) if ms), [])
+        matches = next((ms for ms in (site_matches(s, data) for s in SITES) if ms), [])
         if not matches:
             continue
         if len(matches) != 1:
@@ -185,7 +221,7 @@ def main() -> int:
     assert len(patched) == len(data)
 
     def _verify(written: bytes) -> None:
-        still = any(s.search(written) is not None for s in SITES)
+        still = any(site_matches(s, written) for s in SITES)
         if len(written) != len(data) or MARKER not in written or still:
             raise RuntimeError(
                 f"post-write verification failed (len={len(written)} want={len(data)}, "

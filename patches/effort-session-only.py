@@ -21,9 +21,9 @@ persistence calls), the SDK `update_settings` control request, `--effort` and
 CLAUDE_CODE_EFFORT_LEVEL. To change the default for new sessions, edit
 `effortLevel` in settings.json.
 
-Anchor: the setter lives in the chunk with "Failed to set effort level"; it is
-the only `async function X(a,b,c,d=!0,e){let F=!1,G=null,H=await Y(a,b,d,` in
-the binary. The patched shape is its own idempotency marker.
+Anchor: the setter lives in the chunk with "Failed to set effort level"
+("Couldn't set effort level" since 2.1.326); it is the only
+`async function X(a,b,c,d=!0,e){let F=!1,G=null,H=await Y(a,b,d,` in the binary. The patched shape is its own idempotency marker.
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
@@ -48,7 +48,7 @@ PATCHED = re.compile(
     + JSID + rb"\)\{let " + JSID + rb"=\1=!1, " + JSID + rb"=null," + JSID + rb"=await " + JSID
     + rb"\(" + JSID + rb"," + JSID + rb",\1,"
 )
-CONTEXT = b"Failed to set effort level"
+CONTEXTS = (b"Failed to set effort level", b"Couldn't set effort level")  # ≤ 2.1.325, 2.1.326+
 
 
 def replacement(m: re.Match) -> bytes:
@@ -63,7 +63,7 @@ def replacement(m: re.Match) -> bytes:
 def main() -> int:
     for binp in candidate_binaries():
         data = read_binary(binp)
-        if CONTEXT not in data:
+        if not any(c in data for c in CONTEXTS):
             continue
         if PATCHED.search(data):
             print(f"effort-session-only: confirmed already patched ({binp})", file=sys.stderr)
@@ -73,7 +73,7 @@ def main() -> int:
             print(
                 f"effort-session-only: expected exactly 1 stock /effort setter, found {len(hits)} "
                 f"in {binp} — upstream code changed. Re-investigate: `clisrc.py --find "
-                f"'Failed to set effort level'`, then find the async function that the /effort "
+                f"'set effort level'`, then find the async function that the /effort "
                 f"command and picker call with a persist flag (stock `r=!0` default) and force it false.",
             )
             return 1
@@ -91,7 +91,7 @@ def main() -> int:
         return 0
 
     print(
-        f"effort-session-only: anchor {CONTEXT!r} not found in any candidate binary "
+        f"effort-session-only: none of the anchors {CONTEXTS!r} found in any candidate binary "
         f"({[str(p) for p in candidate_binaries()]}) — the /effort command was reworked; "
         f"re-investigate how /effort persists effortLevel to user settings.",
     )
