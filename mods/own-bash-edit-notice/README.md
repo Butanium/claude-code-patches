@@ -57,3 +57,17 @@ inside `xc.py`. `test_wrote.mts` holds the positive/negative naming cases; `prob
 Also checked: the CLI's own "Bash edit diff" (`CLAUDE_CODE_BASH_EDIT_DIFF=1`,
 `bashEditDiffEnabled`) records a `bashEditDiff` in the tool result but does not stop the
 notice.
+
+0.0.5 (2026-11-21): **forks and resumes now get the same short text.** The engine asks
+`prompt.attachment` again for every attachment on resume, and a `--resume --fork-session`
+fork is a fresh process with no Bash history, so 0.0.4 kept the full notice there. The fork's
+request then differed from its parent's at the first shortened notice, and the fork rewrote
+the whole context instead of reading the parent's cache. fable52's first 25 glances
+(2026-11-09/10, porch `tools/senses/gate.py`) each rewrote 300-717k tokens this way, $201 of
+cache writes, until the mod stopped running in that session. Each shortening is now saved in
+`$.store` under a hash of the session cwd plus the original notice, and replayed whenever the
+same notice is asked about again, capped at 4000 entries. `probe_fork.sh` tests it with the
+installed copy turned off via `--settings`. On 2.1.321, 0.0.4 gave the parent `short` and the
+fork `full` (the fork wrote 434 tokens of cache), and 0.0.5 gave `short` in both (the fork wrote
+16 tokens and read the parent's whole prefix).
+

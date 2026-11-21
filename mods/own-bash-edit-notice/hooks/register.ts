@@ -12,6 +12,11 @@
 //   - it plausibly WROTE it: a redirect into that path, or a writing verb (sed -i, tee,
 //     mv/cp, patch, truncate, git checkout/restore/apply/stash/reset, a python/node/perl/
 //     ruby script) in a command naming it. `cat`, `jq .`, `git diff`, `grep` don't count.
+// The engine asks again for every attachment on resume, and a `--resume --fork-session`
+// fork is a fresh process with no command history, so each shortening is saved in
+// $.store under a hash of the original notice and replayed. Otherwise the fork sends the
+// full notice where its parent sent the short one, the requests diverge there, and the
+// fork rewrites the whole context instead of reading the parent's cache.
 
 const WRITE_VERB = /\bsed\s+(?:-\S+\s+)*-i|\bperl\s+-\S*i|\btee\b|\bmv\b|\bcp\b|\bpatch\b|\btruncate\b|\bgit\s+(?:checkout|restore|apply|stash|reset)\b|\bpython3?\b|\bnode\b|\bruby\b|\bperl\b/
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -44,6 +49,29 @@ function relatives(c: string, abs: string, home: string, cwd: string): string[] 
   return [...new Set(dirs.filter((d) => d && abs.startsWith(d + "/")).map((d) => abs.slice(d.length + 1)))]
 }
 
+const STORE_MAX = 4000 // ~330 bytes each, well under the store's 4 MiB
+
+// FNV-1a over UTF-16 code units, two seeds: 64 bits, no imports needed.
+export function noticeKey(text: string): string {
+  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193)
+    b = Math.imul(b ^ c, 0x01000193) ^ (b >>> 15)
+  }
+  return "short:" + (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0")
+}
+
+async function remember($: any, key: string, text: string): Promise<void> {
+  try {
+    await $.store.set(key, text)
+    const keys: string[] = await $.store.keys()
+    if (keys.length > STORE_MAX) for (const k of keys.slice(0, keys.length - STORE_MAX)) await $.store.delete(k)
+  } catch (err) {
+    $.ui.log(`own-bash-edit-notice: could not save the shortening (${err})`)
+  }
+}
+
 export function wrote(cmd: string, shown: string, abs: string, home: string, cwd: string): boolean {
   const c = cmd.replace(/\d?>&\d|&>\s*\/dev\/null|\d?>>?\s*\/dev\/null/g, " ")
   const names = forms(shown, abs, home)
@@ -71,10 +99,13 @@ export function register(on: any): void {
   on("prompt.attachment", { type: "edited_text_file" }, async ($: any, e: any, next: any) => {
     const m = /^Note: (.+?) changed on disk since you last read it/.exec(e.text)
     if (!m) return next(e)
+    const cwd = await $.session.cwd()
+    const key = noticeKey(cwd + "\0" + e.text)
+    const saved = await $.store.get(key)
+    if (typeof saved === "string") return next({ ...e, text: saved })
     const shown = m[1]
     // A hooks module has no `process`: HOME comes through $.env.
     const home = (await $.env.get("HOME")) ?? ""
-    const cwd = await $.session.cwd()
     let abs = shown.startsWith("~/") && home ? home + shown.slice(1) : shown
     if (!abs.startsWith("/")) abs = `${cwd}/${abs.replace(/^\.\//, "")}`
     // turn.step for this request fires before its attachments are resolved, so the
@@ -86,10 +117,9 @@ export function register(on: any): void {
       + (cmd === undefined ? "full notice kept" : "shortened"))
     if (cmd === undefined) return next(e)
     const head = cmd.replace(/\s+/g, " ").slice(0, 80)
-    return next({
-      ...e,
-      text: `Note: ${shown} changed on disk after your own Bash command (\`${head}\`), so its diff is left out. `
-        + `The copy of it in your context is stale; Read it before relying on its exact current content.`,
-    })
+    const text = `Note: ${shown} changed on disk after your own Bash command (\`${head}\`), so its diff is left out. `
+      + `The copy of it in your context is stale; Read it before relying on its exact current content.`
+    await remember($, key, text)
+    return next({ ...e, text })
   })
 }
