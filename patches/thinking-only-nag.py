@@ -48,6 +48,11 @@ built from a regex anchored on the stable telemetry string
 emitter in front of it — hardcoding that as `g(` is what broke this patch on
 2.1.270, where the same import minified to `h(`.
 
+2.1.330 moved this block into a helper that returns a verdict to the query
+loop: `if(!g)return l("query_thinking_only_response","nudged"),{kind:"nudge",...};`
+followed by the same resend / nudge_exhausted logic. The edit is the same
+(`if(!g)` -> `if(!1)`); the regex accepts either `{` or `return ` after the guard.
+
 Idempotency: the patched guard `if(!1` in front of that same telemetry string is
 unique and doubles as the applied-marker.
 
@@ -66,11 +71,13 @@ from _binpatch import JSID, apply_patch, candidate_binaries, read_binary
 ANCHOR = b'"query_thinking_only_response","nudged"'
 # The telemetry emitter is itself a minified import (`g(` in 2.1.257, `h(` in
 # 2.1.270), so it is matched as an identifier rather than hardcoded.
+# 2.1.330 moved the check into a helper that returns a verdict, so the branch
+# became `if(!g)return l("query_thinking_only_response","nudged"),{kind:"nudge",...}`.
 GUARD_RX = re.compile(
-    rb"if\(!(" + JSID + rb")\)\{" + JSID + rb'\("query_thinking_only_response","nudged"\)'
+    rb"if\(!(" + JSID + rb")\)(?:\{|return )" + JSID + rb'\("query_thinking_only_response","nudged"\)'
 )
 PATCHED_RX = re.compile(
-    rb"if\(!1 *\)\{" + JSID + rb'\("query_thinking_only_response","nudged"\)'
+    rb"if\(!1 *\)(?:\{|return )" + JSID + rb'\("query_thinking_only_response","nudged"\)'
 )
 
 

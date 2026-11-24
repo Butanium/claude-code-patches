@@ -49,6 +49,21 @@ skipped part of the helper only reads two registries (spawn provenance, unnamed
 steered agents) before the enqueue, so an interim notification is now dropped
 before the defer loop instead of when its turn comes.
 
+2.1.330 can address one notification to several recipients: the owner and the
+task's `askers` (earlier owners still waiting on it, kept when another caller
+resumes the agent). The owner's route is bound first (`let Gt=jt?ot():sn,Jt=
+g==="completed"&&zTe(vt);`, `ot()` being the main session's id), and the end of
+the function enqueues once per recipient:
+`for(let ls of Rs)if(ls!==ct)MZr(e,ls,()=>Ps(ls));`. The guard moves onto that
+`if`, per recipient: `if(ls!==ct&&!(Jt&&ls===ot())/*marker*/)MZr(...)`. So the
+main session's copy of an interim notification is dropped and an agent
+recipient's copy is kept. One case changed: an interim notification from an
+agent whose owning agent is gone used to be routed to the main session and kept
+(the owner was still a task in the registry); it is now dropped like any other
+interim notification to the main session. The non-waking pointer the main
+session gets when one of its agents now reports to another agent (gated on the
+`tengu_moonlit_peacock` flag and on interactive mode) is left alone.
+
 What still arrives:
 - The notification an agent sends when it stops with no background work left,
   and failure / stop notifications. These are byte-identical to stock.
@@ -84,7 +99,8 @@ marker is the idempotency signal.
 Re-investigation anchor if this stops applying after an update: the string
 "This agent stopped with background work of its own still running" and the
 `ea({value:...,mode:"task-notification",...})` call after it (since 2.1.326 a
-call to the helper that builds that object).
+call to the helper that builds that object, since 2.1.330 inside a loop over
+recipients).
 
 Contract (cli-patches): stderr reports applied/confirmed, exit 0.
 Exit 1 if the patch can't be applied (runner relays the message to Claude).
@@ -151,7 +167,19 @@ SITE_HELPER = re.compile(
     + rb"\(" + JSID + rb"\),)",
     re.DOTALL,
 )
-SITES = (SITE_HELPER, SITE_HOISTED, SITE_INLINE)
+# 2.1.330: one enqueue per recipient (owner + askers). The guard goes inside the
+# loop's `if`, so the match ends right after `if(<r>!==<id>` and the guard is
+# appended there.
+SITE_ASKERS = re.compile(
+    rb"let " + JSID + rb"=" + JSID + rb"\?(?P<main>" + JSID + rb")\(\):" + JSID + rb","
+    rb"(?P<cond>" + JSID + rb")=" + JSID + rb'==="completed"&&' + JSID + rb"\(" + JSID + rb"\);.{0,3000}?"
+    rb",(?P<t>" + JSID + rb")=(?P=cond)\?"
+    rb'"(?P<note>' + re.escape(NOTE_HEAD) + rb'[^"]*)":.{0,4000}?'
+    rb"for\(let (?P<r>" + JSID + rb") of " + JSID + rb"\)if\((?P=r)!==" + JSID
+    + rb"(?=\)" + JSID + rb"\(" + JSID + rb",(?P=r),\(\)=>" + JSID + rb"\((?P=r)\)\))",
+    re.DOTALL,
+)
+SITES = (SITE_ASKERS, SITE_HELPER, SITE_HOISTED, SITE_INLINE)
 # Every site contains the note as a JS string literal and spans well under this
 # many bytes on each side of it; scanning only these windows takes the search
 # from ~11 s per site over the whole binary to milliseconds.
@@ -171,12 +199,18 @@ def site_matches(site: re.Pattern, data: bytes) -> list[re.Match]:
 def build(m: re.Match) -> bytes:
     old = m.group(0)
     o = m.start()
-    guard = m["cond"] + b"&&!" + m["reg"] + b".get(" + m["ue"] + b")||"
-    head = old[: m.start("note") - o] + SHORT_NOTE + old[m.end("note") - o : m.start("call") - o] + guard
-    pad = len(old) - len(head) - len(b"/*") - len(MARKER) - len(b"*/") - len(m["call"])
+    if "r" in m.re.groupindex:  # per-recipient loop (2.1.330+): skip the main session's copy
+        guard = b"&&!(" + m["cond"] + b"&&" + m["r"] + b"===" + m["main"] + b"())"
+        ins = m.end()
+    else:  # single enqueue: skip it when the owner is not a task (main-started agent)
+        guard = m["cond"] + b"&&!" + m["reg"] + b".get(" + m["ue"] + b")||"
+        ins = m.start("call")
+    head = old[: m.start("note") - o] + SHORT_NOTE + old[m.end("note") - o : ins - o] + guard
+    tail = old[ins - o :]
+    pad = len(old) - len(head) - len(b"/*") - len(MARKER) - len(b"*/") - len(tail)
     if pad < 0:
         raise RuntimeError(f"replacement is {-pad} bytes longer than the site; shorten SHORT_NOTE")
-    new = head + b"/*" + MARKER + b" " * pad + b"*/" + m["call"]
+    new = head + b"/*" + MARKER + b" " * pad + b"*/" + tail
     assert len(new) == len(old), (len(new), len(old))
     return new
 

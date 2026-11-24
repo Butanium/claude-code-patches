@@ -18,7 +18,9 @@ The patch:
   - schema: `omit({cwd:!0})` -> `omit({cwd:!1})`. The bundled zod v4 omit skips
     falsy mask entries (`if(!t[o])continue`), so `cwd` stays in the schema.
   - gate: drop `&&!<cwd>`, so `name`+`cwd` takes the teammate route.
-  - call: `use_splitpane:!0,` -> `use_splitpane:!0,cwd:<cwd>,`.
+  - call: `use_splitpane:!0,` -> `use_splitpane:!0,cwd:<cwd>,`. 2.1.330
+    removed `use_splitpane` (and the separate-window spawner it selected), so
+    there the call's head is the anchor: `=await He({` -> `=await He({cwd:<cwd>,`.
   - in-process spawner: it hardcodes `cwd:<lead's current dir>` and would run the
     teammate in the wrong place without a word, so it now throws when `cwd` is
     set. That covers teammateMode "in-process" and the auto fallback when no
@@ -27,6 +29,10 @@ The patch:
     and now compute the pane directory as `let T=OIn();` (lead's dir). The patch
     makes that `let T=n.cwd||OIn();`, which is what 2.1.321 had natively
     (`let T=P||pe();` with `P` the destructured cwd).
+    2.1.330 has a single pane spawner (`let _=IKr();`) and gets the same edit.
+  - 2.1.330 routes the teammate spawn through the plugin `agent.spawn` hook
+    first, passing it `cwd:void 0`. That call is left as is: hooks see no cwd,
+    and the hook's rewritten spawn does not carry one into spawnTeammate.
   - 2.1.325 also added a clause to the gate,
     `&&(ude(e)===$a()?.worktreePath||!_is())`, between `!cwd` and `!flag()`
     (an agent running in its own worktree does not get a teammate). It is left
@@ -68,6 +74,7 @@ DESTRUCTURE = re.compile(
 )
 SPAWN_REQUIRE = b"let{spawnTeammate:"
 CALL_ANCHOR = b"use_splitpane:!0,"
+SPAWN_FN = re.compile(rb"let\{spawnTeammate:(" + JSID + rb")\}=")
 OFFERED_OLD = b"is not offered in this session."
 OFFERED_NEW = b"is not offered here."
 
@@ -145,19 +152,26 @@ def build(data: bytes) -> bytes:
     if len(gates) != 1:
         raise RuntimeError(f"expected 1 teammate gate (&&!{iso!r}&&!{cwd!r}&&!f()){{), found {len(gates)}")
     g = gates[0]
-    call = data.find(CALL_ANCHOR, sp, sp + 400)
-    if call == -1:
-        raise RuntimeError(f"{CALL_ANCHOR!r} not found in the spawnTeammate call")
-    start, end = g.start(), call + len(CALL_ANCHOR)
+    # 2.1.330 dropped `use_splitpane`; the head of the call (`=await He({`) is the anchor there.
+    fn = SPAWN_FN.match(data, sp)
+    if not fn:
+        raise RuntimeError("could not read the spawnTeammate binding")
+    for anchor in (CALL_ANCHOR, b"=await " + fn.group(1) + b"({"):
+        call = data.find(anchor, sp, sp + 400)
+        if call != -1:
+            break
+    else:
+        raise RuntimeError(f"neither {CALL_ANCHOR!r} nor `=await <spawnTeammate>({{` found in the spawnTeammate call")
+    start, end = g.start(), call + len(anchor)
     region = data[start:end]
     if region.count(OFFERED_OLD) != 1:
         raise RuntimeError(f"expected 1 {OFFERED_OLD!r} between gate and call")
 
     gate_old = g.group(0)
     gate_new_head = g.group("pre") + g.group("post")  # ...&&!<iso>[&&(...)]&&!f()){
-    body = region[len(gate_old) : -len(CALL_ANCHOR)]
+    body = region[len(gate_old) : -len(anchor)]
     body = body.replace(OFFERED_OLD, OFFERED_NEW, 1)
-    tail = CALL_ANCHOR + b"cwd:" + cwd + b","
+    tail = anchor + b"cwd:" + cwd + b","
     fixed = len(gate_new_head) + len(MARKER) + len(b"*/") + len(body) + len(tail)
     pad = len(region) - fixed
     if pad < 0:
@@ -198,9 +212,10 @@ def build(data: bytes) -> bytes:
     # --- 5. pane spawners honor cwd (2.1.325+) ---------------------------
     panes = list(PANE_STOCK.finditer(data))
     native = len(PANE_NATIVE.findall(data))
-    if (len(panes), native) not in ((0, 2), (2, 0)):
+    # 2.1.330 has a single pane spawner (no separate-window variant).
+    if (len(panes), native) not in ((0, 2), (2, 0), (1, 0)):
         raise RuntimeError(
-            f"expected 2 pane spawners, either all reading cwd or all ignoring it; found {native} "
+            f"expected 1 or 2 pane spawners, either all reading cwd or all ignoring it; found {native} "
             f"reading it and {len(panes)} ignoring it (`let T=<fn>();` after 'Internal error: session "
             f"team not initialized.')"
         )
